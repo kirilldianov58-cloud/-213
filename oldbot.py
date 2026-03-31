@@ -483,13 +483,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await delete_previous_message(chat_id, context)
     text = (
-        f'<tg-emoji emoji-id="{BALL_EMOJI_ID}">⚽</tg-emoji> '
-        f"<b>Футбольный бот PRO</b>\n\n"
-        f'<tg-emoji emoji-id="{BALL_EMOJI_ID}">⚽</tg-emoji> LIVE-матчи\n'
-        f'<tg-emoji emoji-id="{BELL_EMOJI_ID}">🔔</tg-emoji> Голы и карточки LIVE\n'
-        f'<tg-emoji emoji-id="{STAR_EMOJI_ID}">⭐</tg-emoji> Подписки на команды\n'
-        f'<tg-emoji emoji-id="{TROPHY_EMOJI_ID}">🏆</tg-emoji> Прогнозы и достижения\n\n'
-        f"<i>👇 Выберите лигу:</i>"
+        "⚽ <b>Футбольный бот PRO</b>\n\n"
+        "⚽ LIVE-матчи\n"
+        "🔔 Голы и карточки LIVE\n"
+        "⭐ Подписки на команды\n"
+        "🏆 Прогнозы и достижения\n\n"
+        "<i>👇 Выберите лигу:</i>"
     )
     sent = await update.message.reply_text(
         text=text,
