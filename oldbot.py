@@ -482,8 +482,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update_user_stats(user.id, user.first_name, user.username)
     chat_id = update.effective_chat.id
     await delete_previous_message(chat_id, context)
-    photo_url = "https://i.postimg.cc/RVfDJvGC/START.jpg"
-    caption = (
+    text = (
         f'<tg-emoji emoji-id="{BALL_EMOJI_ID}">⚽</tg-emoji> '
         f"<b>Футбольный бот PRO</b>\n\n"
         f'<tg-emoji emoji-id="{BALL_EMOJI_ID}">⚽</tg-emoji> LIVE-матчи\n'
@@ -492,14 +491,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f'<tg-emoji emoji-id="{TROPHY_EMOJI_ID}">🏆</tg-emoji> Прогнозы и достижения\n\n'
         f"<i>👇 Выберите лигу:</i>"
     )
-    sent = await update.message.reply_photo(
-        photo=photo_url,
-        caption=caption,
+    sent = await update.message.reply_text(
+        text=text,
         parse_mode=ParseMode.HTML,
         reply_markup=main_menu(),
     )
     last_message_ids[chat_id] = sent.message_id
-
 
 # ================== МАТЧИ ЗА 48 ЧАСОВ ==================
 async def matches_next_48h(update, league_key):
