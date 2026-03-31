@@ -6,7 +6,7 @@ from cachetools import TTLCache
 import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from telegram.constants import ParseMode
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler
 import telegram
 
 print(f"🔍 Версия python-telegram-bot: {telegram.__version__}")
@@ -41,6 +41,7 @@ BELL_EMOJI_ID = "5458603043203327669"
 STAR_EMOJI_ID = "5438496463044752972"
 HOME_EMOJI_ID = "5416041192905265756"
 PLANE_EMOJI_ID = "5463424023734014980"
+TROPHY_EMOJI_ID = "5439035165176814243"
 
 TEAM_EMOJIS = {
     "Галатасарай": "5253576384122466632",
@@ -115,11 +116,10 @@ def translate_team(name):
 # ================== КЭШ ==================
 cache = {
     'standings': TTLCache(maxsize=50, ttl=900),
-    'matches': TTLCache(maxsize=100, ttl=900),  # увеличен до 15 минут
+    'matches': TTLCache(maxsize=100, ttl=300),
     'live': TTLCache(maxsize=20, ttl=30),
 }
 
-# ================== ЧАСОВЫЕ ПОЯСА ==================
 UTC_TZ = pytz.UTC
 MSK_TZ = pytz.timezone('Europe/Moscow')
 
@@ -133,14 +133,14 @@ def utc_to_msk(utc_time_str):
         msk_dt = utc_dt.astimezone(MSK_TZ)
         return msk_dt
     except Exception as e:
-        print(f"❌ Ошибка преобразования времени: {e}")
+        print(f"Ошибка преобразования времени: {e}")
         return None
 
 # ================== БАЗА ДАННЫХ ==================
 conn = sqlite3.connect("football_bot.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# Основные таблицы
+# Таблицы
 cursor.execute("CREATE TABLE IF NOT EXISTS subscriptions (user_id INTEGER, team TEXT)")
 cursor.execute("CREATE TABLE IF NOT EXISTS goal_subscriptions (user_id INTEGER, match_id INTEGER, PRIMARY KEY (user_id, match_id))")
 cursor.execute("CREATE TABLE IF NOT EXISTS users ("
@@ -150,15 +150,15 @@ cursor.execute("CREATE TABLE IF NOT EXISTS users ("
                "first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
                "last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
                "commands_count INTEGER DEFAULT 0)")
-# Таблицы для прогнозов и статистики
+
+# Таблицы для прогнозов
 cursor.execute("CREATE TABLE IF NOT EXISTS user_stats ("
                "user_id INTEGER PRIMARY KEY,"
                "total_predictions INTEGER DEFAULT 0,"
                "correct_predictions INTEGER DEFAULT 0,"
                "current_streak INTEGER DEFAULT 0,"
                "max_streak INTEGER DEFAULT 0,"
-               "points INTEGER DEFAULT 0,"
-               "last_prediction_match_id INTEGER)")
+               "points INTEGER DEFAULT 0)")
 cursor.execute("CREATE TABLE IF NOT EXISTS predictions ("
                "id INTEGER PRIMARY KEY AUTOINCREMENT,"
                "user_id INTEGER,"
@@ -166,19 +166,11 @@ cursor.execute("CREATE TABLE IF NOT EXISTS predictions ("
                "prediction TEXT,"
                "result TEXT DEFAULT 'pending',"
                "points_earned INTEGER DEFAULT 0,"
-               "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-               "updated_at TIMESTAMP)")
-cursor.execute("CREATE TABLE IF NOT EXISTS achievements ("
-               "id INTEGER PRIMARY KEY,"
-               "name TEXT,"
-               "description TEXT,"
-               "condition_type TEXT,"
-               "condition_value INTEGER)")
-cursor.execute("CREATE TABLE IF NOT EXISTS user_achievements ("
-               "user_id INTEGER,"
-               "achievement_id INTEGER,"
-               "earned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-               "PRIMARY KEY (user_id, achievement_id))")
+               "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+conn.commit()
+
+# Инициализация статистики для существующих пользователей
+cursor.execute("INSERT OR IGNORE INTO user_stats (user_id) SELECT user_id FROM users")
 conn.commit()
 
 # ================== ХРАНИЛИЩЕ ID ПОСЛЕДНИХ СООБЩЕНИЙ ==================
@@ -198,11 +190,7 @@ async def fetch_matches(competition_id, date_from, date_to):
         return cache['matches'][cache_key]
 
     url = "https://api.football-data.org/v4/matches"
-    params = {
-        "competitions": competition_id,
-        "dateFrom": date_from,
-        "dateTo": date_to
-    }
+    params = {"competitions": competition_id, "dateFrom": date_from, "dateTo": date_to}
     headers = {"X-Auth-Token": FOOTBALL_DATA_TOKEN}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -213,10 +201,10 @@ async def fetch_matches(competition_id, date_from, date_to):
                 cache['matches'][cache_key] = matches
                 return matches
             else:
-                print(f"⚠️ Ошибка API матчей: {resp.status_code}")
+                print(f"Ошибка API матчей: {resp.status_code}")
                 return []
     except Exception as e:
-        print(f"❌ Ошибка запроса матчей: {e}")
+        print(f"Ошибка запроса матчей: {e}")
         return []
 
 async def fetch_standings(competition_id):
@@ -235,10 +223,10 @@ async def fetch_standings(competition_id):
                     table = data["standings"][0]["table"]
                     cache['standings'][cache_key] = table
                     return table
-            print(f"⚠️ Ошибка таблицы: {resp.status_code}")
+            print(f"Ошибка таблицы: {resp.status_code}")
             return []
     except Exception as e:
-        print(f"❌ Ошибка standings: {e}")
+        print(f"Ошибка standings: {e}")
         return []
 
 async def fetch_live_matches():
@@ -258,10 +246,10 @@ async def fetch_live_matches():
                 cache['live'][cache_key] = matches
                 return matches
             else:
-                print(f"⚠️ Ошибка API live: {resp.status_code}")
+                print(f"Ошибка API live: {resp.status_code}")
                 return []
     except Exception as e:
-        print(f"❌ Ошибка запроса live: {e}")
+        print(f"Ошибка запроса live: {e}")
         return []
 
 # ================== СТАТИСТИКА ПОЛЬЗОВАТЕЛЕЙ ==================
@@ -276,7 +264,7 @@ async def update_user_stats(user_id, first_name=None, username=None):
     cursor.execute("INSERT OR IGNORE INTO user_stats (user_id) VALUES (?)", (user_id,))
     conn.commit()
 
-# ================== ДАННЫЕ ЛИГИ ЧЕМПИОНОВ 2025/26 ==================
+# ================== ДАННЫЕ ЛИГИ ЧЕМПИОНОВ ==================
 UCL_PLAYOFF = {
     "round_of_16": {
         "name": "1/8 финала",
@@ -328,7 +316,7 @@ def main_menu():
         [InlineKeyboardButton("⚽ Голы и карточки LIVE", callback_data="goal_live")],
         [InlineKeyboardButton("⭐ Мои подписки", callback_data="my_subs")],
         [InlineKeyboardButton("🎯 Прогнозы", callback_data="predictions")],
-        [InlineKeyboardButton("📊 Мой рейтинг", callback_data="my_rank")],
+        [InlineKeyboardButton("🏆 Рейтинг", callback_data="rating")]
     ])
 
 def league_menu(league_key):
@@ -360,12 +348,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f'<tg-emoji emoji-id="{TROPHY_EMOJI_ID}">🏆</tg-emoji> Прогнозы и рейтинг\n\n'
         f'<i>👇 Выберите лигу:</i>'
     )
-    sent = await update.message.reply_photo(
-        photo=photo_url,
-        caption=caption,
-        parse_mode=ParseMode.HTML,
-        reply_markup=main_menu()
-    )
+    sent = await update.message.reply_photo(photo=photo_url, caption=caption, parse_mode=ParseMode.HTML, reply_markup=main_menu())
     last_message_ids[chat_id] = sent.message_id
 
 # ================== МАТЧИ ЗА 72 ЧАСА ==================
@@ -393,9 +376,9 @@ async def matches_next_72h(update, league_key):
     if not matches:
         text = f"📅 <b>{league['logo']} {league['name']}</b>\n\n<i>Нет матчей с {date_from} по {date_to}</i>"
         if loading_msg:
-            await loading_msg.edit_text(text, reply_markup=back_keyboard)
+            await loading_msg.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
         else:
-            sent = await update.message.reply_text(text, reply_markup=back_keyboard)
+            sent = await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
             last_message_ids[chat_id] = sent.message_id
         return
 
@@ -425,12 +408,12 @@ async def matches_next_72h(update, league_key):
             text += f"⏳ {date_str} {time_str}  <b>{home}</b> vs <b>{away}</b>\n"
 
     if loading_msg:
-        await loading_msg.edit_text(text, reply_markup=back_keyboard)
+        await loading_msg.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
     else:
-        sent = await update.message.reply_text(text, reply_markup=back_keyboard)
+        sent = await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
         last_message_ids[chat_id] = sent.message_id
 
-# ================== ТАБЛИЦА (без HTML для надёжности) ==================
+# ================== ТАБЛИЦА ==================
 async def show_table(update, league_key):
     user = update.from_user
     await update_user_stats(user.id, user.first_name, user.username)
@@ -438,7 +421,6 @@ async def show_table(update, league_key):
     await delete_previous_message(chat_id, update.get_bot())
 
     league = LEAGUES[league_key]
-
     cache_key = f"standings_{league['id']}"
     cached_table = cache['standings'].get(cache_key)
     if cached_table is not None:
@@ -453,9 +435,9 @@ async def show_table(update, league_key):
     if not table:
         text = f"📊 <b>{league['logo']} {league['name']}</b>\n\n<i>Нет данных таблицы</i>"
         if loading_msg:
-            await loading_msg.edit_text(text, reply_markup=back_keyboard)
+            await loading_msg.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
         else:
-            sent = await update.message.reply_text(text, reply_markup=back_keyboard)
+            sent = await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
             last_message_ids[chat_id] = sent.message_id
         return
 
@@ -478,12 +460,12 @@ async def show_table(update, league_key):
 
     try:
         if loading_msg:
-            await loading_msg.edit_text(text, reply_markup=back_keyboard)
+            await loading_msg.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
         else:
-            sent = await update.message.reply_text(text, reply_markup=back_keyboard)
+            sent = await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
             last_message_ids[chat_id] = sent.message_id
     except Exception as e:
-        print(f"❌ Ошибка при отправке таблицы с HTML: {e}")
+        print(f"Ошибка при отправке таблицы с HTML: {e}")
         import re
         plain_text = re.sub(r'<[^>]+>', '', text)
         if loading_msg:
@@ -500,7 +482,6 @@ async def live_matches(update):
     await delete_previous_message(chat_id, update.get_bot())
 
     matches = await fetch_live_matches()
-
     if not matches:
         text = "🔴 <b>LIVE матчи</b>\n\n<i>Сейчас нет матчей в прямом эфире</i>"
         sent = await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=main_menu())
@@ -525,7 +506,6 @@ async def live_matches(update):
 
         home_ru = translate_team(home)
         away_ru = translate_team(away)
-
         ball_emoji = f'<tg-emoji emoji-id="{BALL_EMOJI_ID}">⚽</tg-emoji>'
         text += f"{ball_emoji} <b>{home_ru}</b> {score_h}–{score_a} <b>{away_ru}</b>"
         if minute:
@@ -560,17 +540,10 @@ async def goal_live_menu(update):
         home_ru = translate_team(home)
         away_ru = translate_team(away)
         text += f"• {home_ru} vs {away_ru} ({league})\n"
-        keyboard.append([InlineKeyboardButton(
-            f"🔔 {home_ru} – {away_ru}",
-            callback_data=f"goal_sub_{match_id}"
-        )])
+        keyboard.append([InlineKeyboardButton(f"🔔 {home_ru} – {away_ru}", callback_data=f"goal_sub_{match_id}")])
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")])
 
-    sent = await update.message.reply_text(
-        text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    sent = await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
     last_message_ids[chat_id] = sent.message_id
 
 async def goal_subscribe(update, match_id):
@@ -582,10 +555,7 @@ async def goal_subscribe(update, match_id):
     try:
         cursor.execute("INSERT OR IGNORE INTO goal_subscriptions (user_id, match_id) VALUES (?, ?)", (user.id, match_id))
         conn.commit()
-        sent = await update.message.reply_text(
-            f"✅ Вы подписались на события в этом матче!",
-            reply_markup=main_menu()
-        )
+        sent = await update.message.reply_text(f"✅ Вы подписались на события в этом матче!", reply_markup=main_menu())
         last_message_ids[chat_id] = sent.message_id
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка подписки: {e}")
@@ -598,10 +568,7 @@ async def goal_unsubscribe(update, match_id):
 
     cursor.execute("DELETE FROM goal_subscriptions WHERE user_id=? AND match_id=?", (user.id, match_id))
     conn.commit()
-    sent = await update.message.reply_text(
-        f"❌ Вы отписались от событий в этом матче.",
-        reply_markup=main_menu()
-    )
+    sent = await update.message.reply_text(f"❌ Вы отписались от событий в этом матче.", reply_markup=main_menu())
     last_message_ids[chat_id] = sent.message_id
 
 # ================== ЛИГА ЧЕМПИОНОВ ==================
@@ -686,11 +653,7 @@ async def show_league_teams(update, league_key):
         keyboard.append(row)
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=f"league_{league_key}")])
 
-    sent = await update.message.reply_text(
-        text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    sent = await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
     last_message_ids[chat_id] = sent.message_id
 
 async def subscribe_team(user_id, team):
@@ -744,14 +707,10 @@ async def my_subscriptions(update, user_id):
             keyboard.append([InlineKeyboardButton(f"❌ Отписаться от матча {mid}", callback_data=f"goal_unsub_{mid}")])
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")])
 
-    sent = await update.message.reply_text(
-        text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    sent = await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
     last_message_ids[chat_id] = sent.message_id
 
-# ================== ПРОГНОЗЫ (ConversationHandler) ==================
+# ================== ПРОГНОЗЫ ==================
 PREDICTION_SELECT_MATCH, PREDICTION_SELECT_OUTCOME = range(2)
 
 async def predictions_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -771,7 +730,7 @@ async def predictions_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         all_matches.extend(matches)
 
     if not all_matches:
-        await update.message.reply_text("В ближайшие 72 часа нет матчей для прогнозов.")
+        await update.message.reply_text("В ближайшие 72 часа нет матчей для прогнозов.", reply_markup=main_menu())
         return ConversationHandler.END
 
     unique_matches = {}
@@ -793,10 +752,7 @@ async def predictions_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton(text, callback_data=f"pred_match_{match['id']}")])
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")])
 
-    await update.message.reply_text(
-        "🎯 Выберите матч для прогноза:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await update.message.reply_text("🎯 Выберите матч для прогноза:", reply_markup=InlineKeyboardMarkup(keyboard))
     return PREDICTION_SELECT_MATCH
 
 async def prediction_match_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -821,10 +777,7 @@ async def prediction_match_selected(update: Update, context: ContextTypes.DEFAUL
         [InlineKeyboardButton("✈️ Победа гостей", callback_data=f"pred_outcome_away_{match_id}")],
         [InlineKeyboardButton("🔙 Назад", callback_data="back_to_predictions")],
     ])
-    await query.message.edit_text(
-        f"Матч: {home} – {away}\n{time_str}\n\nВыберите исход:",
-        reply_markup=keyboard
-    )
+    await query.message.edit_text(f"Матч: {home} – {away}\n{time_str}\n\nВыберите исход:", reply_markup=keyboard)
     return PREDICTION_SELECT_OUTCOME
 
 async def prediction_outcome_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -842,21 +795,11 @@ async def prediction_outcome_selected(update: Update, context: ContextTypes.DEFA
     prediction_map = {"home": "home", "draw": "draw", "away": "away"}
     prediction = prediction_map[outcome]
 
-    cursor.execute("INSERT INTO predictions (user_id, match_id, prediction) VALUES (?, ?, ?)",
-                   (user_id, match_id, prediction))
-    conn.commit()
-
+    cursor.execute("INSERT INTO predictions (user_id, match_id, prediction) VALUES (?, ?, ?)", (user_id, match_id, prediction))
     cursor.execute("UPDATE user_stats SET total_predictions = total_predictions + 1 WHERE user_id=?", (user_id,))
     conn.commit()
 
-    await query.message.edit_text(
-        "✅ Прогноз сохранён! Результат будет учтён после завершения матча.",
-        reply_markup=main_menu()
-    )
-    return ConversationHandler.END
-
-async def cancel_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Прогноз отменён.", reply_markup=main_menu())
+    await query.message.edit_text("✅ Прогноз сохранён! Результат будет учтён после завершения матча.", reply_markup=main_menu())
     return ConversationHandler.END
 
 async def back_to_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -864,98 +807,41 @@ async def back_to_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
     return await predictions_menu(query, context)
 
+async def cancel_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Прогноз отменён.", reply_markup=main_menu())
+    return ConversationHandler.END
+
 # ================== РЕЙТИНГ ==================
-async def my_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     await update_user_stats(user.id, user.first_name, user.username)
     chat_id = update.effective_chat.id
     await delete_previous_message(chat_id, context.bot)
 
-    cursor.execute("SELECT points FROM user_stats WHERE user_id=?", (user.id,))
-    points_row = cursor.fetchone()
-    points = points_row[0] if points_row else 0
-
-    cursor.execute("SELECT COUNT(*) FROM user_stats WHERE points > ?", (points,))
-    rank = cursor.fetchone()[0] + 1
-
-    cursor.execute("SELECT COUNT(*) FROM user_stats")
-    total = cursor.fetchone()[0]
-
-    text = f"🏆 <b>Ваш рейтинг</b>\n\n"
-    text += f"⭐ Очки: {points}\n"
-    text += f"📊 Место: {rank} из {total}\n"
-
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=main_menu())
-
-async def top_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    await update_user_stats(user.id, user.first_name, user.username)
-    chat_id = update.effective_chat.id
-    await delete_previous_message(chat_id, context.bot)
-
-    cursor.execute("""
-        SELECT u.first_name, u.username, us.points
-        FROM user_stats us
-        JOIN users u ON u.user_id = us.user_id
-        ORDER BY us.points DESC
-        LIMIT 10
-    """)
+    cursor.execute("SELECT user_id, points FROM user_stats ORDER BY points DESC")
     leaders = cursor.fetchall()
 
-    text = "🏆 <b>Топ-10 игроков</b>\n\n"
-    for i, (name, username, points) in enumerate(leaders, 1):
-        name_str = name or username or "Аноним"
-        text += f"{i}. {name_str} — {points} очков\n"
+    if not leaders:
+        text = "🏆 <b>Рейтинг пока пуст</b>\nСделайте первый прогноз!"
+    else:
+        text = "🏆 <b>Рейтинг игроков</b>\n\n"
+        for i, (uid, points) in enumerate(leaders[:10], 1):
+            name = cursor.execute("SELECT first_name FROM users WHERE user_id=?", (uid,)).fetchone()
+            name_str = name[0] if name and name[0] else f"Пользователь {uid}"
+            text += f"{i}. {name_str} — {points} очков\n"
+
+        # Место текущего пользователя
+        user_rank = next((i for i, (uid, _) in enumerate(leaders, 1) if uid == user.id), None)
+        user_points = cursor.execute("SELECT points FROM user_stats WHERE user_id=?", (user.id,)).fetchone()
+        if user_rank and user_points:
+            text += f"\n✨ <b>Ваше место: {user_rank} из {len(leaders)} (очков: {user_points[0]})</b>"
 
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=main_menu())
 
-# ================== СПИСОК ПОДПИСЧИКОВ (ДЛЯ ВЛАДЕЛЬЦА) ==================
-async def subscribers_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if user.id != OWNER_ID:
-        await update.message.reply_text("⛔ Доступ запрещён")
-        return
-
-    args = context.args
-    if args:
-        team = " ".join(args)
-        cursor.execute("""
-            SELECT u.user_id, u.first_name, u.username
-            FROM subscriptions s
-            JOIN users u ON u.user_id = s.user_id
-            WHERE s.team = ?
-            ORDER BY u.first_name
-        """, (team,))
-        rows = cursor.fetchall()
-        if not rows:
-            await update.message.reply_text(f"Нет подписчиков на команду {team}.")
-            return
-        text = f"👥 Подписчики на {team}:\n\n"
-        for row in rows:
-            name = row[1] or row[2] or str(row[0])
-            text += f"• {name} (ID: {row[0]})\n"
-            if len(text) > 3000:
-                await update.message.reply_text(text)
-                text = ""
-        if text:
-            await update.message.reply_text(text)
-    else:
-        cursor.execute("SELECT user_id, first_name, username FROM users ORDER BY first_seen")
-        rows = cursor.fetchall()
-        text = "👥 Все пользователи:\n\n"
-        for row in rows:
-            name = row[1] or row[2] or str(row[0])
-            text += f"• {name} (ID: {row[0]})\n"
-            if len(text) > 3000:
-                await update.message.reply_text(text)
-                text = ""
-        if text:
-            await update.message.reply_text(text)
-
-# ================== АДМИНИСТРИРОВАНИЕ ==================
+# ================== АДМИН-СТАТИСТИКА ==================
 OWNER_ID = 6298119477
 
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id != OWNER_ID:
         await update.message.reply_text("⛔ Доступ запрещён")
@@ -965,21 +851,16 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await delete_previous_message(chat_id, context.bot)
 
-    cursor.execute("SELECT COUNT(*) FROM users")
-    total_users = cursor.fetchone()[0]
+    total_users = cursor.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    today_active = cursor.execute("SELECT COUNT(*) FROM users WHERE date(last_seen) = date('now')").fetchone()[0]
+    week_active = cursor.execute("SELECT COUNT(*) FROM users WHERE last_seen >= datetime('now', '-7 days')").fetchone()[0]
+    month_active = cursor.execute("SELECT COUNT(*) FROM users WHERE last_seen >= datetime('now', '-30 days')").fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM users WHERE date(last_seen) = date('now')")
-    today_active = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM users WHERE last_seen >= datetime('now', '-7 days')")
-    week_active = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM users WHERE last_seen >= datetime('now', '-30 days')")
-    month_active = cursor.fetchone()[0]
-
-    cursor.execute("SELECT team, COUNT(*) as cnt FROM subscriptions GROUP BY team ORDER BY cnt DESC LIMIT 10")
-    top_teams = cursor.fetchall()
+    top_teams = cursor.execute("SELECT team, COUNT(*) as cnt FROM subscriptions GROUP BY team ORDER BY cnt DESC LIMIT 10").fetchall()
     teams_text = "\n".join([f"{team}: {cnt}" for team, cnt in top_teams]) or "Нет данных"
+
+    top_users = cursor.execute("SELECT user_id, first_name, username, commands_count FROM users ORDER BY commands_count DESC LIMIT 10").fetchall()
+    users_text = "\n".join([f"{first or uid}: {cmds} команд" for uid, first, uname, cmds in top_users]) or "Нет данных"
 
     text = (
         f"📊 <b>Статистика бота</b>\n\n"
@@ -987,17 +868,18 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📅 Активных сегодня: {today_active}\n"
         f"📆 Активных за неделю: {week_active}\n"
         f"🗓 Активных за месяц: {month_active}\n\n"
-        f"⚽ <b>Топ команд по подпискам:</b>\n{teams_text}"
+        f"⚽ <b>Топ команд по подпискам:</b>\n{teams_text}\n\n"
+        f"🏆 <b>Топ активных пользователей:</b>\n{users_text}"
     )
 
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
-# ================== ФОНОВЫЕ ЗАДАЧИ ==================
+# ================== ФОНОВАЯ ЗАДАЧА ПРОВЕРКИ МАТЧЕЙ (уведомления по подпискам) ==================
 last_scores = {}
 notified_start = set()
 
 async def match_checker(app):
-    print("🔄 Запущен проверщик матчей (голы, старты, подписки на команды)")
+    print("🔄 Запущен проверщик матчей (голы и подписки)")
     while True:
         try:
             matches = await fetch_live_matches()
@@ -1010,18 +892,12 @@ async def match_checker(app):
                 aw = match["score"]["fullTime"]["away"] or match["score"]["halfTime"]["away"] or 0
                 score = f"{hs}-{aw}"
 
-                # Подписки на команды
-                cursor.execute("SELECT user_id FROM subscriptions WHERE team=? OR team=?", (home, away))
-                team_subscribers = cursor.fetchall()
-                # Подписки на конкретный матч (голы)
-                cursor.execute("SELECT user_id FROM goal_subscriptions WHERE match_id=?", (fixture_id,))
-                goal_subscribers = cursor.fetchall()
-
-                # Уведомление о старте (для всех, кто подписан на команду или на матч)
+                # Уведомления по подпискам на команды (таблица subscriptions)
                 if status in ["IN_PLAY", "LIVE"] and fixture_id not in notified_start:
-                    all_users = set([row[0] for row in team_subscribers] + [row[0] for row in goal_subscribers])
+                    cursor.execute("SELECT user_id FROM subscriptions WHERE team=? OR team=?", (home, away))
+                    users = cursor.fetchall()
                     ball_emoji = f'<tg-emoji emoji-id="{BALL_EMOJI_ID}">⚽</tg-emoji>'
-                    for user_id in all_users:
+                    for (user_id,) in users:
                         try:
                             await app.bot.send_message(
                                 chat_id=user_id,
@@ -1032,14 +908,15 @@ async def match_checker(app):
                             pass
                     notified_start.add(fixture_id)
 
-                # Уведомление о голе (только для подписчиков матча и подписчиков команд)
+                # Уведомления по голам (старая логика для goal_subscriptions)
                 if fixture_id not in last_scores:
                     last_scores[fixture_id] = score
 
                 if last_scores[fixture_id] != score:
-                    all_users = set([row[0] for row in team_subscribers] + [row[0] for row in goal_subscribers])
+                    cursor.execute("SELECT user_id FROM goal_subscriptions WHERE match_id=?", (fixture_id,))
+                    users = cursor.fetchall()
                     ball_emoji = f'<tg-emoji emoji-id="{BALL_EMOJI_ID}">⚽</tg-emoji>'
-                    for user_id in all_users:
+                    for (user_id,) in users:
                         try:
                             await app.bot.send_message(
                                 chat_id=user_id,
@@ -1052,13 +929,12 @@ async def match_checker(app):
 
         except Exception as e:
             import traceback
-            print(f"❌ Ошибка в match_checker: {e}")
+            print(f"Ошибка в match_checker: {e}")
             traceback.print_exc()
-
         await asyncio.sleep(30)
 
+# ================== ФОНОВАЯ ЗАДАЧА ПРОВЕРКИ ПРОГНОЗОВ ==================
 async def prediction_checker(app):
-    """Проверяет завершённые матчи и начисляет очки за прогнозы с бонусом за серию"""
     while True:
         try:
             date_from = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
@@ -1083,27 +959,22 @@ async def prediction_checker(app):
                         predictions = cursor.fetchall()
                         for pred_id, user_id, prediction in predictions:
                             if prediction == result:
-                                # Правильный прогноз: 1 балл + бонус за серию >=3
+                                points = 1
+                                # Бонус за серию: если текущая серия >= 3, добавляем +3
                                 cursor.execute("SELECT current_streak FROM user_stats WHERE user_id=?", (user_id,))
-                                streak_row = cursor.fetchone()
-                                current_streak = streak_row[0] if streak_row else 0
-                                # Серия увеличивается после этого прогноза
-                                new_streak = current_streak + 1
-                                bonus = 3 if new_streak >= 3 else 0
-                                points_earned = 1 + bonus
-
-                                cursor.execute("UPDATE predictions SET result='correct', points_earned=? WHERE id=?", (points_earned, pred_id))
-                                cursor.execute("UPDATE user_stats SET correct_predictions=correct_predictions+1, current_streak=?, points=points+? WHERE user_id=?",
-                                               (new_streak, points_earned, user_id))
-                                # Обновляем max_streak
+                                streak = cursor.fetchone()
+                                if streak and streak[0] >= 3:
+                                    points += 3
+                                cursor.execute("UPDATE predictions SET result='correct', points_earned=? WHERE id=?", (points, pred_id))
+                                cursor.execute("UPDATE user_stats SET correct_predictions=correct_predictions+1, current_streak=current_streak+1, points=points+? WHERE user_id=?", (points, user_id))
                                 cursor.execute("UPDATE user_stats SET max_streak = MAX(current_streak, max_streak) WHERE user_id=?", (user_id,))
-                                conn.commit()
                             else:
                                 cursor.execute("UPDATE predictions SET result='incorrect', points_earned=0 WHERE id=?", (pred_id,))
                                 cursor.execute("UPDATE user_stats SET current_streak=0 WHERE user_id=?", (user_id,))
-                                conn.commit()
+                            conn.commit()
+                await asyncio.sleep(5)  # пауза между лигами
         except Exception as e:
-            print(f"❌ Ошибка в prediction_checker: {e}")
+            print(f"Ошибка в prediction_checker: {e}")
         await asyncio.sleep(3600)  # раз в час
 
 # ================== ОБРАБОТЧИК КНОПОК ==================
@@ -1203,41 +1074,33 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await predictions_menu(query, context)
         return
 
-    if data == "my_rank":
-        await my_rank(query, context)
+    if data == "rating":
+        await show_rating(query, context)
         return
 
 # ================== ЗАПУСК ==================
 def main():
     print("=" * 60)
-    print("⚽ ФУТБОЛЬНЫЙ БОТ PRO (уведомления по подпискам, прогнозы, рейтинг)")
+    print("⚽ ФУТБОЛЬНЫЙ БОТ PRO (с прогнозами и уведомлениями по подпискам)")
     print("=" * 60)
     print("✅ Таблицы и расписание: football-data.org")
     print("✅ Live-матчи и события: football-data.org")
-    print("✅ Уведомления о голах и старте матчей для подписанных команд")
-    print("✅ Прогнозы с бонусом за серию (3+ верных → +3 балла)")
-    print("✅ Рейтинг и топ-10")
-    print("✅ Список подписчиков для владельца (/subscribers)")
+    print("✅ Уведомления о голах (по подпискам)")
+    print("✅ Прогнозы с бонусом за серию")
     print("=" * 60)
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stats", stats_command))
-    app.add_handler(CommandHandler("subscribers", subscribers_command))
-    app.add_handler(CommandHandler("top", top_players))
-    app.add_handler(CommandHandler("rank", my_rank))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
     # ConversationHandler для прогнозов
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(predictions_menu, pattern="^predictions$")],
         states={
-            PREDICTION_SELECT_MATCH: [
-                CallbackQueryHandler(prediction_match_selected, pattern="^pred_match_"),
-            ],
-            PREDICTION_SELECT_OUTCOME: [
-                CallbackQueryHandler(prediction_outcome_selected, pattern="^pred_outcome_"),
-            ],
+            PREDICTION_SELECT_MATCH: [CallbackQueryHandler(prediction_match_selected, pattern="^pred_match_")],
+            PREDICTION_SELECT_OUTCOME: [CallbackQueryHandler(prediction_outcome_selected, pattern="^pred_outcome_")],
         },
         fallbacks=[
             CommandHandler("cancel", cancel_predictions),
@@ -1246,8 +1109,6 @@ def main():
         name="predictions_conversation",
     )
     app.add_handler(conv_handler)
-
-    app.add_handler(CallbackQueryHandler(button_handler))
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
