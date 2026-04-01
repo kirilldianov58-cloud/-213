@@ -116,7 +116,7 @@ def translate_team(name):
 # ================== КЭШ ==================
 cache = {
     'standings': TTLCache(maxsize=50, ttl=900),
-    'matches': TTLCache(maxsize=100, ttl=600),   # 10 минут
+    'matches': TTLCache(maxsize=100, ttl=600),
     'live': TTLCache(maxsize=20, ttl=30),
 }
 
@@ -855,6 +855,12 @@ async def top_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================== ОБРАТНАЯ СВЯЗЬ (FSM) ==================
 FEEDBACK_TEXT = 0
 
+async def feedback_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.message.edit_text("✍️ Напишите ваше предложение или рекламный запрос.\n\n(Чтобы отменить, отправьте /cancel)")
+    return FEEDBACK_TEXT
+
 async def feedback_text_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     user = message.from_user
@@ -1063,7 +1069,6 @@ async def prediction_checker(app):
                                 if streak >= 3:
                                     # Дополнительный бонус 3 балла
                                     cursor.execute("UPDATE user_stats SET points = points + 3 WHERE user_id=?", (user_id,))
-                                    # Можно отправить уведомление о бонусе
                                     try:
                                         await app.bot.send_message(chat_id=user_id, text="🎉 Бонус за серию! +3 балла", parse_mode=ParseMode.HTML)
                                     except:
