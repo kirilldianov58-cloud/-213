@@ -683,7 +683,7 @@ async def my_subscriptions(update, user_id):
     sent = await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
     last_message_ids[chat_id] = sent.message_id
 
-# ================== ОБРАТНАЯ СВЯЗЬ ==================
+# ================== ОБРАТНАЯ СВЯЗЬ (FSM) ==================
 FEEDBACK_TEXT = 0
 
 async def feedback_start(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
@@ -981,6 +981,7 @@ def main():
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("broadcast", broadcast))
 
+    # ConversationHandler для обратной связи (FSM)
     feedback_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(feedback_start, pattern="^feedback$")],
         states={
