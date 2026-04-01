@@ -689,7 +689,17 @@ FEEDBACK_TEXT = 0
 async def feedback_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.message.edit_text("✍️ Напишите ваше предложение или рекламный запрос.\n\n(Чтобы отменить, отправьте /cancel)")
+    
+    # Удаляем предыдущее сообщение бота
+    chat_id = query.message.chat.id
+    await delete_previous_message(chat_id, context.bot)
+    
+    # Отправляем новое текстовое сообщение
+    sent = await context.bot.send_message(
+        chat_id=chat_id,
+        text="✍️ Напишите ваше предложение или рекламный запрос.\n\n(Чтобы отменить, отправьте /cancel)"
+    )
+    last_message_ids[chat_id] = sent.message_id
     return FEEDBACK_TEXT
 
 async def feedback_text_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
