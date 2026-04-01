@@ -686,7 +686,8 @@ async def my_subscriptions(update, user_id):
 # ================== ОБРАТНАЯ СВЯЗЬ (FSM) ==================
 FEEDBACK_TEXT = 0
 
-async def feedback_start(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
+async def feedback_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
     await query.answer()
     await query.message.edit_text("✍️ Напишите ваше предложение или рекламный запрос.\n\n(Чтобы отменить, отправьте /cancel)")
     return FEEDBACK_TEXT
@@ -959,9 +960,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         last_message_ids[chat_id] = sent.message_id
         return
 
-    if data == "feedback":
-        await feedback_start(query, context)
-        return
+    # Обработка обратной связи (вызывается только из ConversationHandler, здесь не нужна)
+    # if data == "feedback":
+    #     await feedback_start(query, context)
+    #     return
 
 # ================== ЗАПУСК ==================
 def main():
