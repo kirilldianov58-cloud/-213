@@ -365,7 +365,7 @@ async def matches_next_48h(update, league_key):
     user = update.from_user
     await update_user_stats(user.id, user.first_name, user.username)
     chat_id = update.message.chat.id
-    await delete_previous_message(chat_id, context)
+    await delete_previous_message(chat_id, update.get_bot())
 
     league = LEAGUES[league_key]
     date_from = datetime.now().strftime("%Y-%m-%d")
@@ -427,7 +427,7 @@ async def show_table(update, league_key):
     user = update.from_user
     await update_user_stats(user.id, user.first_name, user.username)
     chat_id = update.message.chat.id
-    await delete_previous_message(chat_id, context)
+    await delete_previous_message(chat_id, update.get_bot())
 
     league = LEAGUES[league_key]
 
@@ -489,7 +489,7 @@ async def live_matches(update):
     user = update.from_user
     await update_user_stats(user.id, user.first_name, user.username)
     chat_id = update.message.chat.id
-    await delete_previous_message(chat_id, context)
+    await delete_previous_message(chat_id, update.get_bot())
 
     matches = await fetch_live_matches()
 
@@ -532,7 +532,7 @@ async def goal_live_menu(update):
     user = update.from_user
     await update_user_stats(user.id, user.first_name, user.username)
     chat_id = update.message.chat.id
-    await delete_previous_message(chat_id, context)
+    await delete_previous_message(chat_id, update.get_bot())
 
     matches = await fetch_live_matches()
     if not matches:
@@ -569,7 +569,7 @@ async def goal_subscribe(update, match_id):
     user = update.from_user
     await update_user_stats(user.id, user.first_name, user.username)
     chat_id = update.message.chat.id
-    await delete_previous_message(chat_id, context)
+    await delete_previous_message(chat_id, update.get_bot())
 
     try:
         cursor.execute("INSERT OR IGNORE INTO goal_subscriptions (user_id, match_id) VALUES (?, ?)", (user.id, match_id))
@@ -586,7 +586,7 @@ async def goal_unsubscribe(update, match_id):
     user = update.from_user
     await update_user_stats(user.id, user.first_name, user.username)
     chat_id = update.message.chat.id
-    await delete_previous_message(chat_id, context)
+    await delete_previous_message(chat_id, update.get_bot())
 
     cursor.execute("DELETE FROM goal_subscriptions WHERE user_id=? AND match_id=?", (user.id, match_id))
     conn.commit()
@@ -655,7 +655,7 @@ async def show_league_teams(update, league_key):
     user = update.from_user
     await update_user_stats(user.id, user.first_name, user.username)
     chat_id = update.message.chat.id
-    await delete_previous_message(chat_id, context)
+    await delete_previous_message(chat_id, update.get_bot())
 
     league = LEAGUES[league_key]
     await update.message.reply_text(f"⏳ Загружаю команды {league['name']}...")
@@ -696,7 +696,7 @@ async def unsubscribe_team(user_id, team):
 async def my_subscriptions(update, user_id):
     await update_user_stats(update.from_user.id, update.from_user.first_name, update.from_user.username)
     chat_id = update.message.chat.id
-    await delete_previous_message(chat_id, context)
+    await delete_previous_message(chat_id, update.get_bot())
 
     cursor.execute("SELECT team FROM subscriptions WHERE user_id=?", (user_id,))
     subs = [row[0] for row in cursor.fetchall()]
