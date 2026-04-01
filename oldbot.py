@@ -698,11 +698,20 @@ async def my_subscriptions(update, user_id):
 # ================== ПРОГНОЗЫ (FSM) ==================
 PREDICTION_SELECT_MATCH, PREDICTION_SELECT_OUTCOME = range(2)
 
-async def predictions_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    await update_user_stats(user.id, user.first_name, user.username)
-    chat_id = update.effective_chat.id
-    await delete_previous_message(chat_id, context.bot)
+async def predictions_menu(source, context: ContextTypes.DEFAULT_TYPE):
+    # source может быть Update (для команды) или CallbackQuery (для кнопки)
+    if isinstance(source, Update):
+        user = source.effective_user
+        await update_user_stats(user.id, user.first_name, user.username)
+        chat_id = source.effective_chat.id
+        await delete_previous_message(chat_id, context.bot)
+        reply_func = source.message.reply_text
+    else:  # CallbackQuery
+        user = source.from_user
+        await update_user_stats(user.id, user.first_name, user.username)
+        chat_id = source.message.chat.id
+        await delete_previous_message(chat_id, context.bot)
+        reply_func = source.message.reply_text
 
     date_from = datetime.now().strftime("%Y-%m-%d")
     date_to = (datetime.now() + timedelta(hours=72)).strftime("%Y-%m-%d")
@@ -715,7 +724,7 @@ async def predictions_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         all_matches.extend(matches)
 
     if not all_matches:
-        await update.message.reply_text("В ближайшие 72 часа нет матчей для прогнозов.")
+        await reply_func("В ближайшие 72 часа нет матчей для прогнозов.")
         return ConversationHandler.END
 
     unique_matches = {}
@@ -737,11 +746,10 @@ async def predictions_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton(text, callback_data=f"pred_match_{match['id']}")])
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")])
 
-    await update.message.reply_text("🎯 Выберите матч для прогноза:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await reply_func("🎯 Выберите матч для прогноза:", reply_markup=InlineKeyboardMarkup(keyboard))
     return PREDICTION_SELECT_MATCH
 
-async def prediction_match_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+async def prediction_match_selected(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     match_id = int(query.data.split("_")[2])
     matches = context.user_data.get("prediction_matches", [])
@@ -765,8 +773,7 @@ async def prediction_match_selected(update: Update, context: ContextTypes.DEFAUL
     await query.message.edit_text(f"Матч: {home} – {away}\n{time_str}\n\nВыберите исход:", reply_markup=keyboard)
     return PREDICTION_SELECT_OUTCOME
 
-async def prediction_outcome_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+async def prediction_outcome_selected(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     outcome = query.data.split("_")[2]
     match_id = int(query.data.split("_")[3])
@@ -792,8 +799,7 @@ async def prediction_outcome_selected(update: Update, context: ContextTypes.DEFA
     await query.message.edit_text("✅ Прогноз сохранён! Результат будет учтён после завершения матча.", reply_markup=main_menu())
     return ConversationHandler.END
 
-async def back_to_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+async def back_to_predictions(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     return await predictions_menu(query, context)
 
@@ -802,17 +808,25 @@ async def cancel_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 # ================== РЕЙТИНГ ==================
-async def my_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    await update_user_stats(user.id, user.first_name, user.username)
-    chat_id = update.effective_chat.id
-    await delete_previous_message(chat_id, context.bot)
+async def my_rank(source, context: ContextTypes.DEFAULT_TYPE):
+    if isinstance(source, Update):
+        user = source.effective_user
+        await update_user_stats(user.id, user.first_name, user.username)
+        chat_id = source.effective_chat.id
+        await delete_previous_message(chat_id, context.bot)
+        reply_func = source.message.reply_text
+    else:  # CallbackQuery
+        user = source.from_user
+        await update_user_stats(user.id, user.first_name, user.username)
+        chat_id = source.message.chat.id
+        await delete_previous_message(chat_id, context.bot)
+        reply_func = source.message.reply_text
 
     cursor.execute("SELECT points FROM user_stats WHERE user_id=?", (user.id,))
     points = cursor.fetchone()
     if not points or points[0] == 0:
         text = "🏆 <b>Ваше место в рейтинге</b>\n\nУ вас пока нет очков. Делайте прогнозы!"
-        await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=main_menu())
+        await reply_func(text, parse_mode=ParseMode.HTML, reply_markup=main_menu())
         return
 
     # Подсчёт места
@@ -827,13 +841,21 @@ async def my_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += f"📊 Позиция: {position} из {total}\n\n"
     text += "Продолжайте делать прогнозы, чтобы подняться выше!"
 
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=main_menu())
+    await reply_func(text, parse_mode=ParseMode.HTML, reply_markup=main_menu())
 
-async def top_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    await update_user_stats(user.id, user.first_name, user.username)
-    chat_id = update.effective_chat.id
-    await delete_previous_message(chat_id, context.bot)
+async def top_players(source, context: ContextTypes.DEFAULT_TYPE):
+    if isinstance(source, Update):
+        user = source.effective_user
+        await update_user_stats(user.id, user.first_name, user.username)
+        chat_id = source.effective_chat.id
+        await delete_previous_message(chat_id, context.bot)
+        reply_func = source.message.reply_text
+    else:  # CallbackQuery
+        user = source.from_user
+        await update_user_stats(user.id, user.first_name, user.username)
+        chat_id = source.message.chat.id
+        await delete_previous_message(chat_id, context.bot)
+        reply_func = source.message.reply_text
 
     cursor.execute("""
         SELECT u.first_name, u.username, us.points
@@ -850,13 +872,12 @@ async def top_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name_str = name or username or "Аноним"
         text += f"{i}. {name_str} — {points} очков\n"
 
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=main_menu())
+    await reply_func(text, parse_mode=ParseMode.HTML, reply_markup=main_menu())
 
 # ================== ОБРАТНАЯ СВЯЗЬ (FSM) ==================
 FEEDBACK_TEXT = 0
 
-async def feedback_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+async def feedback_start(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     await query.message.edit_text("✍️ Напишите ваше предложение или рекламный запрос.\n\n(Чтобы отменить, отправьте /cancel)")
     return FEEDBACK_TEXT
