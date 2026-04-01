@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import httpx
 from cachetools import TTLCache
 import pytz
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, Message
 from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 import telegram
@@ -855,20 +855,14 @@ async def top_players(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================== ОБРАТНАЯ СВЯЗЬ (FSM) ==================
 FEEDBACK_TEXT = 0
 
-async def feedback_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.message.edit_text("✍️ Напишите ваше предложение или рекламный запрос.\n\n(Чтобы отменить, отправьте /cancel)")
-    return FEEDBACK_TEXT
-
-async def feedback_text_received(message: Message, context: ContextTypes.DEFAULT_TYPE):
+async def feedback_text_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message
     user = message.from_user
     text = message.text.strip()
     if not text:
         await message.reply_text("Пожалуйста, напишите текст.")
         return FEEDBACK_TEXT
 
-    # Пересылаем администратору
     admin_text = f"📩 <b>Новое сообщение от пользователя</b>\n"
     admin_text += f"👤 {user.full_name} (@{user.username or 'нет'})\n"
     admin_text += f"🆔 {user.id}\n\n"
