@@ -379,17 +379,22 @@ async def matches_next_48h(update, league_key):
     date_from = now_msk.strftime("%Y-%m-%d")
     date_to = (now_msk + timedelta(hours=48)).strftime("%Y-%m-%d")
     
-    # Для отладки (можно удалить после проверки)
+    # Для отладки: выводим в лог диапазон
     print(f"🔍 Ищем матчи {league['name']} за период: с {date_from} по {date_to} (МСК)")
 
-    cache_key = f"matches_{league['id']}_{date_from}_{date_to}"
-    cached_matches = cache['matches'].get(cache_key)
-    if cached_matches is not None:
-        matches = cached_matches
-        loading_msg = None
-    else:
-        loading_msg = await update.message.reply_text(f"⏳ Загружаю матчи {league['name']}...")
-        matches = await fetch_matches(league["id"], date_from, date_to)
+    # Временно отключаем кэш, чтобы всегда получать свежие данные
+    # cached_matches = cache['matches'].get(cache_key)
+    # if cached_matches is not None:
+    #     matches = cached_matches
+    #     loading_msg = None
+    # else:
+    loading_msg = await update.message.reply_text(f"⏳ Загружаю матчи {league['name']}...")
+    matches = await fetch_matches(league["id"], date_from, date_to)
+
+    # Диагностика: выводим, сколько матчей вернуло API
+    print(f"🔍 API вернул {len(matches)} матчей для {league['name']}")
+    for m in matches:
+        print(f"   - {m['utcDate']} | {m['homeTeam']['name']} vs {m['awayTeam']['name']}")
 
     back_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]])
 
@@ -435,7 +440,6 @@ async def matches_next_48h(update, league_key):
     else:
         sent = await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
         last_message_ids[chat_id] = sent.message_id
-
 # ================== ТАБЛИЦА ==================
 async def show_table(update, league_key):
     user = update.from_user
