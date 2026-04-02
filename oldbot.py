@@ -8,6 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Callbac
 from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 import telegram
+MSK_TZ = pytz.timezone('Europe/Moscow')
 
 print(f"🔍 Версия python-telegram-bot: {telegram.__version__}")
 
@@ -368,8 +369,18 @@ async def matches_next_48h(update, league_key):
     await delete_previous_message(chat_id, update.get_bot())
 
     league = LEAGUES[league_key]
-    date_from = datetime.now().strftime("%Y-%m-%d")
-    date_to = (datetime.now() + timedelta(hours=48)).strftime("%Y-%m-%d")
+    
+    # Получаем текущее время в часовом поясе Москвы (MSK)
+    now_msk = datetime.now(MSK_TZ)
+    
+    # Формируем даты для API: используем московское время, но API ожидает UTC.
+    # Чтобы матчи 4 апреля попали в диапазон, считаем дату "от" как сегодня по МСК,
+    # а дату "до" как через 48 часов по МСК.
+    date_from = now_msk.strftime("%Y-%m-%d")
+    date_to = (now_msk + timedelta(hours=48)).strftime("%Y-%m-%d")
+    
+    # Для отладки (можно удалить после проверки)
+    print(f"🔍 Ищем матчи {league['name']} за период: с {date_from} по {date_to} (МСК)")
 
     cache_key = f"matches_{league['id']}_{date_from}_{date_to}"
     cached_matches = cache['matches'].get(cache_key)
@@ -391,8 +402,11 @@ async def matches_next_48h(update, league_key):
             last_message_ids[chat_id] = sent.message_id
         return
 
+    # Заголовок с человекочитаемым интервалом (по МСК)
+    time_from_str = now_msk.strftime("%d.%m.%Y %H:%M")
+    time_to_str = (now_msk + timedelta(hours=48)).strftime("%d.%m.%Y %H:%M")
     text = f"{league['logo']} <b>МАТЧИ {league['name']}</b>\n"
-    text += f"<i>{date_from} – {date_to} (МСК)</i>\n\n"
+    text += f"<i>{time_from_str} – {time_to_str} (МСК)</i>\n\n"
 
     for match in matches:
         msk_time = utc_to_msk(match["utcDate"])
