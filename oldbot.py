@@ -257,14 +257,57 @@ async def fetch_live_matches():
         return []
 
 # ================== СТАТИСТИКА ПОЛЬЗОВАТЕЛЕЙ ==================
-async def update_user_stats(user_id, first_name=None, username=None):
-    cursor.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
-    if cursor.fetchone():
-        cursor.execute("UPDATE users SET last_seen = CURRENT_TIMESTAMP, commands_count = commands_count + 1 WHERE user_id = ?", (user_id,))
-    else:
-        cursor.execute("INSERT INTO users (user_id, first_name, username, commands_count) VALUES (?, ?, ?, 1)", (user_id, first_name, username))
-    conn.commit()
-
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text("⛔ Доступ запрещён")
+        return
+    
+    # Общая статистика пользователей
+    cursor.execute("SELECT COUNT(*) FROM users")
+    total_users = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM users WHERE date(last_seen) = date('now')")
+    today_active = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM users WHERE last_seen >= datetime('now', '-7 days')")
+    week_active = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM users WHERE last_seen >= datetime('now', '-30 days')")
+    month_active = cursor.fetchone()[0]
+    
+    # Топ команд по подпискам
+    cursor.execute("SELECT team, COUNT(*) as cnt FROM subscriptions GROUP BY team ORDER BY cnt DESC LIMIT 10")
+    top_teams = cursor.fetchall()
+    teams_text = "\n".join([f"{team}: {cnt}" for team, cnt in top_teams]) or "Нет данных"
+    
+    # Топ активных пользователей (по командам)
+    cursor.execute("SELECT user_id, first_name, username, commands_count FROM users ORDER BY commands_count DESC LIMIT 10")
+    top_users = cursor.fetchall()
+    users_text = "\n".join([f"{first or uid}: {cmds} команд" for uid, first, uname, cmds in top_users]) or "Нет данных"
+    
+    # Статистика прогнозов
+    cursor.execute("SELECT COUNT(*) FROM user_predictions WHERE is_correct = 1")
+    total_correct = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM user_predictions")
+    total_predictions = cursor.fetchone()[0]
+    accuracy = (total_correct / total_predictions * 100) if total_predictions > 0 else 0
+    
+    text = (
+        f"📊 <b>РАСШИРЕННАЯ СТАТИСТИКА БОТА</b>\n\n"
+        f"👥 <b>Пользователи:</b>\n"
+        f"   • Всего: {total_users}\n"
+        f"   • Активных сегодня: {today_active}\n"
+        f"   • За неделю: {week_active}\n"
+        f"   • За месяц: {month_active}\n\n"
+        f"⚽ <b>Прогнозы:</b>\n"
+        f"   • Всего прогнозов: {total_predictions}\n"
+        f"   • Правильных: {total_correct}\n"
+        f"   • Точность: {accuracy:.1f}%\n\n"
+        f"🏆 <b>Топ команд по подпискам:</b>\n{teams_text}\n\n"
+        f"🔥 <b>Топ активных пользователей:</b>\n{users_text}"
+    )
+    
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 # ================== БАЛЛЫ И СЕРИИ ==================
 async def update_user_points(user_id, base_points, is_correct):
     cursor.execute("SELECT current_streak, total_points, correct_predictions, total_predictions, max_streak FROM user_stats WHERE user_id = ?", (user_id,))
