@@ -43,6 +43,21 @@ STAR_EMOJI_ID = "5438496463044752972"
 HOME_EMOJI_ID = "5416041192905265756"
 PLANE_EMOJI_ID = "5463424023734014980"
 
+# Новые премиум-эмодзи (ваши ID)
+STATS_EMOJI_ID = "5231200819986047254"      # 📊
+TROPHY_EMOJI_ID = "5253894142982895846"     # 🏆
+STAR_POINTS_EMOJI_ID = "6136464120779638846" # ⭐️
+CHECK_EMOJI_ID = "5206607081334906820"       # ✅
+CHART_EMOJI_ID = "5244837092042750681"       # 📈
+FIRE_EMOJI_ID = "5424972470023104089"        # 🔥
+IDEA_EMOJI_ID = "5193127592764394874"        # 💡
+WARNING_EMOJI_ID = "5447644880824181073"     # ⚠️
+ID_EMOJI_ID = "5841276284155467413"          # 🆔
+MATCH_EMOJI_ID = "5391249739729616880"       # 📋
+CRYSTAL_EMOJI_ID = "5361837567463399422"     # 🔮
+DRAW_EMOJI_ID = "5357080225463149588"        # 🤝 ничья
+AWAY_EMOJI_ID = "5361600266225326825"        # ✈️ победа гостей
+
 TEAM_EMOJIS = {
     "Галатасарай": "5253576384122466632",
     "Ливерпуль": "5255735051865306983",
@@ -528,11 +543,13 @@ async def show_active_predictions(query: CallbackQuery, context: ContextTypes.DE
         except:
             pass
         return
-    text = "🔮 <b>ДОСТУПНЫЕ ПРОГНОЗЫ</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    text = (f'<tg-emoji emoji-id="{CRYSTAL_EMOJI_ID}">🔮</tg-emoji> <b>ДОСТУПНЫЕ ПРОГНОЗЫ</b>\n'
+            f'━━━━━━━━━━━━━━━━━━━━━━\n\n')
     for pred_id, match_name, match_time in predictions:
-        text += f"🆔 ID: <code>{pred_id}</code>\n📋 {match_name}\n"
+        text += (f'<tg-emoji emoji-id="{ID_EMOJI_ID}">🆔</tg-emoji> ID: <code>{pred_id}</code>\n'
+                 f'<tg-emoji emoji-id="{MATCH_EMOJI_ID}">📋</tg-emoji> {match_name}\n')
         if match_time:
-            text += f"🕐 {match_time}\n"
+            text += f'🕐 {match_time}\n'
         text += "\n"
     text += "💡 <b>Как сделать прогноз:</b>\n"
     text += "<code>/predict ID_матча home</code> — победа хозяев\n"
@@ -598,12 +615,16 @@ async def show_leaderboard(query: CallbackQuery, context: ContextTypes.DEFAULT_T
         except:
             pass
         return
-    text = "🏆 <b>ТАБЛИЦА ЛИДЕРОВ</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    text = (f'<tg-emoji emoji-id="{TROPHY_EMOJI_ID}">🏆</tg-emoji> <b>ТАБЛИЦА ЛИДЕРОВ</b>\n'
+            f'━━━━━━━━━━━━━━━━━━━━━━\n\n')
     for i, (name, points, correct, total, streak, max_streak) in enumerate(leaders, 1):
         medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
         accuracy = (correct / total * 100) if total > 0 else 0
-        text += f"{medal} <b>{name}</b>\n   ⭐ {points} очков | ✅ {correct}/{total} ({accuracy:.0f}%)\n   🔥 Серия: {streak} | 🏆 Рекорд: {max_streak}\n\n"
-    text += "━━━━━━━━━━━━━━━━━━━━━━\n💡 Бонусы за серию: 3+ → +1 | 7+ → +2 | 12+ → +4"
+        text += (f"{medal} <b>{name}</b>\n"
+                 f'   <tg-emoji emoji-id="{STAR_POINTS_EMOJI_ID}">⭐️</tg-emoji> {points} очков | <tg-emoji emoji-id="{CHECK_EMOJI_ID}">✅</tg-emoji> {correct}/{total} ({accuracy:.0f}%)\n'
+                 f'   <tg-emoji emoji-id="{FIRE_EMOJI_ID}">🔥</tg-emoji> Серия: {streak} | <tg-emoji emoji-id="{TROPHY_EMOJI_ID}">🏆</tg-emoji> Рекорд: {max_streak}\n\n')
+    text += (f'━━━━━━━━━━━━━━━━━━━━━━\n'
+             f'<tg-emoji emoji-id="{IDEA_EMOJI_ID}">💡</tg-emoji> Бонусы за серию: 3+ → +1 | 7+ → +2 | 12+ → +4')
     await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
     try:
         await query.message.delete()
@@ -637,12 +658,16 @@ async def monthly_leaderboard(query: CallbackQuery, context: ContextTypes.DEFAUL
         except:
             pass
         return
-    text = f"📅 <b>ЕЖЕМЕСЯЧНЫЙ РЕЙТИНГ</b> — {current_month}\n🏆 Победитель получит подарок!\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    text = (f'<tg-emoji emoji-id="{STATS_EMOJI_ID}">📅</tg-emoji> <b>ЕЖЕМЕСЯЧНЫЙ РЕЙТИНГ</b> — {current_month}\n'
+            f'<tg-emoji emoji-id="{TROPHY_EMOJI_ID}">🏆</tg-emoji> Победитель получит подарок!\n'
+            f'━━━━━━━━━━━━━━━━━━━━━━\n\n')
     for i, (name, points, correct, total) in enumerate(leaders, 1):
         medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
         accuracy = (correct / total * 100) if total > 0 else 0
-        text += f"{medal} <b>{name}</b>\n   ⭐ {points} очков | ✅ {correct}/{total} ({accuracy:.0f}%)\n\n"
-    text += "━━━━━━━━━━━━━━━━━━━━━━\n🎁 Победитель месяца получает подарок!"
+        text += (f"{medal} <b>{name}</b>\n"
+                 f'   <tg-emoji emoji-id="{STAR_POINTS_EMOJI_ID}">⭐️</tg-emoji> {points} очков | <tg-emoji emoji-id="{CHECK_EMOJI_ID}">✅</tg-emoji> {correct}/{total} ({accuracy:.0f}%)\n\n')
+    text += (f'━━━━━━━━━━━━━━━━━━━━━━\n'
+             f'<tg-emoji emoji-id="{IDEA_EMOJI_ID}">🎁</tg-emoji> Победитель месяца получает подарок!')
     await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
     try:
         await query.message.delete()
@@ -662,10 +687,11 @@ async def winners_history(query: CallbackQuery, context: ContextTypes.DEFAULT_TY
         except:
             pass
         return
-    text = "🏆 <b>ИСТОРИЯ ПОБЕДИТЕЛЕЙ</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    text = (f'<tg-emoji emoji-id="{TROPHY_EMOJI_ID}">🏆</tg-emoji> <b>ИСТОРИЯ ПОБЕДИТЕЛЕЙ</b>\n'
+            f'━━━━━━━━━━━━━━━━━━━━━━\n\n')
     for month, name, points in winners:
         text += f"📅 {month}\n   👑 <b>{name}</b> — {points} очков\n\n"
-    text += "🎁 Следующий победитель получит подарок!"
+    text += f'<tg-emoji emoji-id="{IDEA_EMOJI_ID}">🎁</tg-emoji> Следующий победитель получит подарок!'
     await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
     try:
         await query.message.delete()
@@ -686,7 +712,10 @@ async def my_stats(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
     rank = rank_result[0] if rank_result else 1
     back_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]])
     if not stats:
-        await context.bot.send_message(chat_id=chat_id, text=f"📊 <b>СТАТИСТИКА</b> — {user_name}\n\nПока нет данных.\nСделайте первый прогноз: /predict", parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
+        await context.bot.send_message(chat_id=chat_id,
+            text=(f'<tg-emoji emoji-id="{STATS_EMOJI_ID}">📊</tg-emoji> <b>СТАТИСТИКА</b> — {user_name}\n\n'
+                  f'Пока нет данных.\nСделайте первый прогноз: /predict'),
+            parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
         try:
             await query.message.delete()
         except:
@@ -699,12 +728,16 @@ async def my_stats(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
     elif streak < 7: next_bonus = f"До бонуса +2 осталось {7 - streak} правильных"
     elif streak < 12: next_bonus = f"До бонуса +4 осталось {12 - streak} правильных"
     else: next_bonus = "Вы получаете максимальный бонус +4!"
-    text = (f"📊 <b>СТАТИСТИКА</b> — {user_name}\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"🏆 Место: <b>{rank}</b>\n⭐ Очков: <b>{total_points}</b>\n\n"
-            f"✅ Правильных: <b>{correct}/{total}</b>\n📈 Точность: <b>{accuracy:.1f}%</b>\n\n"
-            f"🔥 Текущая серия: <b>{streak}</b>\n🏆 Рекорд: <b>{max_streak}</b>\n\n"
-            f"💡 <b>Следующий бонус:</b>\n{next_bonus}\n\n"
-            f"⚠️ При ошибке серия сбрасывается, очки сохраняются!")
+    text = (f'<tg-emoji emoji-id="{STATS_EMOJI_ID}">📊</tg-emoji> <b>СТАТИСТИКА</b> — {user_name}\n'
+            f'━━━━━━━━━━━━━━━━━━━━━━\n\n'
+            f'<tg-emoji emoji-id="{TROPHY_EMOJI_ID}">🏆</tg-emoji> Место: <b>{rank}</b>\n'
+            f'<tg-emoji emoji-id="{STAR_POINTS_EMOJI_ID}">⭐️</tg-emoji> Очков: <b>{total_points}</b>\n\n'
+            f'<tg-emoji emoji-id="{CHECK_EMOJI_ID}">✅</tg-emoji> Правильных: <b>{correct}/{total}</b>\n'
+            f'<tg-emoji emoji-id="{CHART_EMOJI_ID}">📈</tg-emoji> Точность: <b>{accuracy:.1f}%</b>\n\n'
+            f'<tg-emoji emoji-id="{FIRE_EMOJI_ID}">🔥</tg-emoji> Текущая серия: <b>{streak}</b>\n'
+            f'<tg-emoji emoji-id="{TROPHY_EMOJI_ID}">🏆</tg-emoji> Рекорд: <b>{max_streak}</b>\n\n'
+            f'<tg-emoji emoji-id="{IDEA_EMOJI_ID}">💡</tg-emoji> <b>Следующий бонус:</b>\n{next_bonus}\n\n'
+            f'<tg-emoji emoji-id="{WARNING_EMOJI_ID}">⚠️</tg-emoji> При ошибке серия сбрасывается, очки сохраняются!')
     await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
     try:
         await query.message.delete()
@@ -732,7 +765,6 @@ async def set_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent = await message.reply_text(f"✅ Ваш ник: {nickname}")
     asyncio.create_task(auto_delete_message(context, message.chat_id, sent.message_id, 10))
 
-# ================== АДМИН-КОМАНДЫ ==================
 # ================== АДМИН-КОМАНДЫ ==================
 async def admin_add_prediction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -814,14 +846,21 @@ async def admin_finish_prediction(update: Update, context: ContextTypes.DEFAULT_
             wrong_users.append(uid)
     cursor.execute("UPDATE predictions SET status = 'finished' WHERE id = ?", (prediction_id,))
     conn.commit()
-    # Начисляем баллы и обновляем серии
     for uid in correct_users:
         await update_user_points(uid, 1, True)
     for uid in wrong_users:
         await update_user_points(uid, 0, False)
-    # Человекочитаемый результат
-    result_text = {"home": "🏠 победа хозяев", "draw": "🤝 ничья", "away": "✈️ победа гостей"}.get(result, result)
-    # Отправляем уведомления всем участникам
+    # Формируем результат с премиум-эмодзи
+    if result == "home":
+        result_emoji = f'<tg-emoji emoji-id="{HOME_EMOJI_ID}">🏠</tg-emoji>'
+        result_text = f"{result_emoji} победа хозяев"
+    elif result == "draw":
+        result_emoji = f'<tg-emoji emoji-id="{DRAW_EMOJI_ID}">🤝</tg-emoji>'
+        result_text = f"{result_emoji} ничья"
+    else:
+        result_emoji = f'<tg-emoji emoji-id="{AWAY_EMOJI_ID}">✈️</tg-emoji>'
+        result_text = f"{result_emoji} победа гостей"
+    # Отправляем уведомления участникам
     for uid, pr in predictions:
         is_correct = (pr == result)
         if is_correct:
@@ -1160,7 +1199,6 @@ def main():
         entry_points=[CallbackQueryHandler(feedback_start, pattern="^feedback$")],
         states={FEEDBACK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, feedback_text_received)]},
         fallbacks=[CommandHandler("cancel", cancel_feedback)],
-        per_message=False,
     )
     app.add_handler(feedback_conv)
     app.add_handler(CallbackQueryHandler(button_handler))
