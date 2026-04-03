@@ -1,5 +1,7 @@
 import asyncio
 import sqlite3
+import os
+import io
 from datetime import datetime, timedelta
 import httpx
 from cachetools import TTLCache
@@ -544,7 +546,7 @@ async def my_subscriptions(query: CallbackQuery, user_id: int, context: ContextT
     except:
         pass
 
-# ================== ПРОГНОЗЫ (КНОПКИ, БЕЗ МЯЧИКА) ==================
+# ================== ПРОГНОЗЫ (КОМПАКТНЫЕ КНОПКИ, БЕЗ МЯЧИКА) ==================
 async def show_active_predictions(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
     chat_id = query.message.chat.id
     await delete_previous_message(chat_id, context)
@@ -556,20 +558,20 @@ async def show_active_predictions(query: CallbackQuery, context: ContextTypes.DE
         return
     
     keyboard = []
-    text = "🔮 <b>ПРОГНОЗЫ НА МАТЧИ</b>\n\n"
     for pred_id, match_name, match_time in predictions:
-        short_name = match_name[:50] + "..." if len(match_name) > 53 else match_name
-        text += f"<b>{short_name}</b>\n"
+        match_text = f"{match_name}"
         if match_time:
-            text += f"🕐 {match_time}\n"
+            match_text += f" ({match_time})"
+        keyboard.append([InlineKeyboardButton(match_text, callback_data="noop")])
         keyboard.append([
             InlineKeyboardButton("🏠 Хозяева", callback_data=f"predict_{pred_id}_home"),
             InlineKeyboardButton("🤝 Ничья", callback_data=f"predict_{pred_id}_draw"),
             InlineKeyboardButton("✈️ Гости", callback_data=f"predict_{pred_id}_away")
         ])
-        text += "\n"
+        keyboard.append([])
     
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")])
+    text = "🔮 <b>ПРОГНОЗЫ НА МАТЧИ</b>\n\nВыберите матч и исход:"
     await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
     try:
         await query.message.delete()
@@ -578,25 +580,20 @@ async def show_active_predictions(query: CallbackQuery, context: ContextTypes.DE
 
 async def save_prediction_from_button(query: CallbackQuery, prediction_id: int, user_choice: str, context: ContextTypes.DEFAULT_TYPE):
     user = query.from_user
-    chat_id = query.message.chat.id
-    
     cursor.execute("SELECT status FROM predictions WHERE id = ?", (prediction_id,))
     pred = cursor.fetchone()
     if not pred or pred[0] != 'active':
         await query.answer("❌ Приём прогнозов на этот матч уже закрыт!", show_alert=True)
         return
-    
     cursor.execute("SELECT 1 FROM user_predictions WHERE user_id = ? AND prediction_id = ?", (user.id, prediction_id))
     if cursor.fetchone():
         await query.answer("❌ Вы уже сделали прогноз на этот матч!", show_alert=True)
         return
-    
     cursor.execute("INSERT INTO user_predictions (user_id, prediction_id, prediction_result) VALUES (?, ?, ?)", (user.id, prediction_id, user_choice))
     cursor.execute("UPDATE user_stats SET total_predictions = total_predictions + 1 WHERE user_id = ?", (user.id,))
     if cursor.rowcount == 0:
         cursor.execute("INSERT INTO user_stats (user_id, total_predictions) VALUES (?, 1)", (user.id,))
     conn.commit()
-    
     choice_text = {"home": "победу хозяев", "draw": "ничью", "away": "победу гостей"}
     await query.answer(f"✅ Прогноз принят! Вы выбрали: {choice_text[user_choice]}", show_alert=False)
     await query.message.edit_text(f"✅ Ваш прогноз принят!\nВы выбрали: {choice_text[user_choice]}\nЖдите результата.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]]))
@@ -638,7 +635,7 @@ async def auto_add_predictions(app):
             print(f"❌ Ошибка в auto_add_predictions: {e}")
             await asyncio.sleep(3600)
 
-# ================== АВТОМАТИЧЕСКОЕ ЗАКРЫТИЕ ПРОГНОЗОВ ПО ВРЕМЕНИ ==================
+# ================== АВТОМАТИЧЕСКОЕ ЗАКРЫТИЕ ПРОГНОЗОВ ПО РАСПИСАНИЮ ==================
 async def auto_close_predictions(app):
     while True:
         try:
@@ -1031,6 +1028,41 @@ async def admin_all_predictions(update: Update, context: ContextTypes.DEFAULT_TY
         text += f"{status_emoji} ID:{p[0]} | {p[1]} | {p[2]}\n"
     await update.message.reply_text(text)
 
+# ================== АВТОМАТИЧЕСКИЙ БЭКАП БАЗЫ ДАННЫХ (КАЖДЫЕ 12 ЧАСОВ) ==================
+async def auto_backup_database(app):
+    """Автоматически отправляет бэкап базы данных админу каждые 12 часов (в 3:00 и 15:00 МСК)"""
+    while True:
+        try:
+            now = datetime.now(MSK_TZ)
+            scheduled_hours = [3, 15]
+            next_run = None
+            for hour in scheduled_hours:
+                candidate = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+                if candidate > now:
+                    next_run = candidate
+                    break
+            if next_run is None:
+                next_run = (now + timedelta(days=1)).replace(hour=scheduled_hours[0], minute=0, second=0, microsecond=0)
+            wait_seconds = (next_run - now).total_seconds()
+            await asyncio.sleep(wait_seconds)
+
+            db_path = "football_bot.db"
+            if os.path.exists(db_path):
+                with open(db_path, "rb") as f:
+                    db_file = io.BytesIO(f.read())
+                    db_file.name = f"football_bot_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+                await app.bot.send_document(
+                    chat_id=OWNER_ID,
+                    document=db_file,
+                    caption=f"📦 Резервная копия БД от {datetime.now().strftime('%d.%m.%Y %H:%M')} МСК"
+                )
+                print(f"✅ Авто-бэкап отправлен {datetime.now()}")
+            else:
+                print("❌ Файл БД не найден для бэкапа")
+        except Exception as e:
+            print(f"❌ Ошибка авто-бэкапа: {e}")
+            await asyncio.sleep(3600)
+
 # ================== ОБРАТНАЯ СВЯЗЬ ==================
 FEEDBACK_TEXT = 0
 
@@ -1331,7 +1363,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================== ЗАПУСК ==================
 def main():
     print("=" * 60)
-    print("⚽ ФУТБОЛЬНЫЙ БОТ PRO (автопрогнозы, кнопки, рейтинги)")
+    print("⚽ ФУТБОЛЬНЫЙ БОТ PRO (автопрогнозы, кнопки, рейтинги, авто-бэкап)")
     print("=" * 60)
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -1362,6 +1394,7 @@ def main():
     loop.create_task(auto_add_predictions(app))
     loop.create_task(auto_close_predictions(app))
     loop.create_task(auto_finish_predictions(app))
+    loop.create_task(auto_backup_database(app))
 
     print("🚀 Бот запущен!")
     app.run_polling()
