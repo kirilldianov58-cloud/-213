@@ -1,7 +1,5 @@
 import asyncio
 import sqlite3
-import os
-import io
 from datetime import datetime, timedelta
 import httpx
 from cachetools import TTLCache
@@ -10,6 +8,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Callbac
 from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 import telegram
+import os
+import io
 
 print(f"🔍 Версия python-telegram-bot: {telegram.__version__}")
 
@@ -546,7 +546,7 @@ async def my_subscriptions(query: CallbackQuery, user_id: int, context: ContextT
     except:
         pass
 
-# ================== ПРОГНОЗЫ (КОМПАКТНЫЕ КНОПКИ, БЕЗ МЯЧИКА) ==================
+# ================== ПРОГНОЗЫ (КОМПАКТНЫЙ ВИД С КНОПКАМИ ПОД КАЖДЫМ МАТЧЕМ) ==================
 async def show_active_predictions(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
     chat_id = query.message.chat.id
     await delete_previous_message(chat_id, context)
@@ -559,16 +559,19 @@ async def show_active_predictions(query: CallbackQuery, context: ContextTypes.DE
     
     keyboard = []
     for pred_id, match_name, match_time in predictions:
+        # Название матча (без мячика)
         match_text = f"{match_name}"
         if match_time:
             match_text += f" ({match_time})"
+        # Неактивная кнопка-заголовок (чтобы сохранить формат)
         keyboard.append([InlineKeyboardButton(match_text, callback_data="noop")])
+        # Три кнопки исхода
         keyboard.append([
             InlineKeyboardButton("🏠 Хозяева", callback_data=f"predict_{pred_id}_home"),
             InlineKeyboardButton("🤝 Ничья", callback_data=f"predict_{pred_id}_draw"),
             InlineKeyboardButton("✈️ Гости", callback_data=f"predict_{pred_id}_away")
         ])
-        keyboard.append([])
+        keyboard.append([])  # разделитель
     
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")])
     text = "🔮 <b>ПРОГНОЗЫ НА МАТЧИ</b>\n\nВыберите матч и исход:"
@@ -580,20 +583,25 @@ async def show_active_predictions(query: CallbackQuery, context: ContextTypes.DE
 
 async def save_prediction_from_button(query: CallbackQuery, prediction_id: int, user_choice: str, context: ContextTypes.DEFAULT_TYPE):
     user = query.from_user
+    chat_id = query.message.chat.id
+    
     cursor.execute("SELECT status FROM predictions WHERE id = ?", (prediction_id,))
     pred = cursor.fetchone()
     if not pred or pred[0] != 'active':
         await query.answer("❌ Приём прогнозов на этот матч уже закрыт!", show_alert=True)
         return
+    
     cursor.execute("SELECT 1 FROM user_predictions WHERE user_id = ? AND prediction_id = ?", (user.id, prediction_id))
     if cursor.fetchone():
         await query.answer("❌ Вы уже сделали прогноз на этот матч!", show_alert=True)
         return
+    
     cursor.execute("INSERT INTO user_predictions (user_id, prediction_id, prediction_result) VALUES (?, ?, ?)", (user.id, prediction_id, user_choice))
     cursor.execute("UPDATE user_stats SET total_predictions = total_predictions + 1 WHERE user_id = ?", (user.id,))
     if cursor.rowcount == 0:
         cursor.execute("INSERT INTO user_stats (user_id, total_predictions) VALUES (?, 1)", (user.id,))
     conn.commit()
+    
     choice_text = {"home": "победу хозяев", "draw": "ничью", "away": "победу гостей"}
     await query.answer(f"✅ Прогноз принят! Вы выбрали: {choice_text[user_choice]}", show_alert=False)
     await query.message.edit_text(f"✅ Ваш прогноз принят!\nВы выбрали: {choice_text[user_choice]}\nЖдите результата.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]]))
@@ -635,7 +643,7 @@ async def auto_add_predictions(app):
             print(f"❌ Ошибка в auto_add_predictions: {e}")
             await asyncio.sleep(3600)
 
-# ================== АВТОМАТИЧЕСКОЕ ЗАКРЫТИЕ ПРОГНОЗОВ ПО РАСПИСАНИЮ ==================
+# ================== АВТОМАТИЧЕСКОЕ ЗАКРЫТИЕ ПРОГНОЗОВ ПО ВРЕМЕНИ ==================
 async def auto_close_predictions(app):
     while True:
         try:
@@ -1363,7 +1371,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================== ЗАПУСК ==================
 def main():
     print("=" * 60)
-    print("⚽ ФУТБОЛЬНЫЙ БОТ PRO (автопрогнозы, кнопки, рейтинги, авто-бэкап)")
+    print("⚽ ФУТБОЛЬНЫЙ БОТ PRO (автопрогнозы, кнопки, рейтинги, автобэкап)")
     print("=" * 60)
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -1394,7 +1402,7 @@ def main():
     loop.create_task(auto_add_predictions(app))
     loop.create_task(auto_close_predictions(app))
     loop.create_task(auto_finish_predictions(app))
-    loop.create_task(auto_backup_database(app))
+    loop.create_task(auto_backup_database(app))  # авто-бэкап каждые 12 часов
 
     print("🚀 Бот запущен!")
     app.run_polling()
