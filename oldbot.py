@@ -43,20 +43,20 @@ STAR_EMOJI_ID = "5438496463044752972"
 HOME_EMOJI_ID = "5416041192905265756"
 PLANE_EMOJI_ID = "5463424023734014980"
 
-# Новые премиум-эмодзи (ваши ID)
-STATS_EMOJI_ID = "5231200819986047254"      # 📊
-TROPHY_EMOJI_ID = "5253894142982895846"     # 🏆
-STAR_POINTS_EMOJI_ID = "6136464120779638846" # ⭐️
-CHECK_EMOJI_ID = "5206607081334906820"       # ✅
-CHART_EMOJI_ID = "5244837092042750681"       # 📈
-FIRE_EMOJI_ID = "5424972470023104089"        # 🔥
-IDEA_EMOJI_ID = "5193127592764394874"        # 💡
-WARNING_EMOJI_ID = "5447644880824181073"     # ⚠️
-ID_EMOJI_ID = "5841276284155467413"          # 🆔
-MATCH_EMOJI_ID = "5391249739729616880"       # 📋
-CRYSTAL_EMOJI_ID = "5361837567463399422"     # 🔮
-DRAW_EMOJI_ID = "5357080225463149588"        # 🤝 ничья
-AWAY_EMOJI_ID = "5361600266225326825"        # ✈️ победа гостей
+# Дополнительные премиум-эмодзи
+STATS_EMOJI_ID = "5231200819986047254"
+TROPHY_EMOJI_ID = "5253894142982895846"
+STAR_POINTS_EMOJI_ID = "6136464120779638846"
+CHECK_EMOJI_ID = "5206607081334906820"
+CHART_EMOJI_ID = "5244837092042750681"
+FIRE_EMOJI_ID = "5424972470023104089"
+IDEA_EMOJI_ID = "5193127592764394874"
+WARNING_EMOJI_ID = "5447644880824181073"
+ID_EMOJI_ID = "5841276284155467413"
+MATCH_EMOJI_ID = "5391249739729616880"
+CRYSTAL_EMOJI_ID = "5361837567463399422"
+DRAW_EMOJI_ID = "5357080225463149588"
+AWAY_EMOJI_ID = "5361600266225326825"
 
 TEAM_EMOJIS = {
     "Галатасарай": "5253576384122466632",
@@ -225,6 +225,21 @@ async def fetch_matches(competition_id, date_from, date_to):
     except Exception as e:
         print(f"❌ Ошибка матчей: {e}")
         return []
+
+async def fetch_single_match(match_api_id):
+    url = f"https://api.football-data.org/v4/matches/{match_api_id}"
+    headers = {"X-Auth-Token": FOOTBALL_DATA_TOKEN}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            else:
+                print(f"⚠️ Ошибка получения матча {match_api_id}: {resp.status_code}")
+                return None
+    except Exception as e:
+        print(f"❌ Ошибка запроса матча {match_api_id}: {e}")
+        return None
 
 async def fetch_standings(competition_id):
     cache_key = f"standings_{competition_id}"
@@ -529,75 +544,187 @@ async def my_subscriptions(query: CallbackQuery, user_id: int, context: ContextT
     except:
         pass
 
-# ================== ПРОГНОЗЫ И РЕЙТИНГИ ==================
+# ================== ПРОГНОЗЫ (КНОПКИ + АВТОМАТИЗАЦИЯ) ==================
 async def show_active_predictions(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
     chat_id = query.message.chat.id
     await delete_previous_message(chat_id, context)
     cursor.execute("SELECT id, match_name, match_time FROM predictions WHERE status = 'active' ORDER BY match_time ASC")
     predictions = cursor.fetchall()
-    back_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]])
+    
     if not predictions:
-        await context.bot.send_message(chat_id=chat_id, text="🔮 Активных прогнозов пока нет", reply_markup=back_keyboard)
-        try:
-            await query.message.delete()
-        except:
-            pass
+        await context.bot.send_message(chat_id=chat_id, text="🔮 Активных прогнозов пока нет", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]]))
         return
-    text = (f'<tg-emoji emoji-id="{CRYSTAL_EMOJI_ID}">🔮</tg-emoji> <b>ДОСТУПНЫЕ ПРОГНОЗЫ</b>\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━\n\n')
+    
+    keyboard = []
     for pred_id, match_name, match_time in predictions:
-        text += (f'<tg-emoji emoji-id="{ID_EMOJI_ID}">🆔</tg-emoji> ID: <code>{pred_id}</code>\n'
-                 f'<tg-emoji emoji-id="{MATCH_EMOJI_ID}">📋</tg-emoji> {match_name}\n')
+        match_text = f"⚽ {match_name}"
         if match_time:
-            text += f'🕐 {match_time}\n'
-        text += "\n"
-    text += "💡 <b>Как сделать прогноз:</b>\n"
-    text += "<code>/predict ID_матча home</code> — победа хозяев\n"
-    text += "<code>/predict ID_матча draw</code> — ничья\n"
-    text += "<code>/predict ID_матча away</code> — победа гостей\n"
-    text += "Пример: <code>/predict 5 home</code>"
-    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML, reply_markup=back_keyboard)
+            match_text += f" ({match_time})"
+        keyboard.append([InlineKeyboardButton(match_text, callback_data="noop")])
+        keyboard.append([
+            InlineKeyboardButton("🏠 Хозяева", callback_data=f"predict_{pred_id}_home"),
+            InlineKeyboardButton("🤝 Ничья", callback_data=f"predict_{pred_id}_draw"),
+            InlineKeyboardButton("✈️ Гости", callback_data=f"predict_{pred_id}_away")
+        ])
+        keyboard.append([])
+    
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")])
+    text = "🔮 <b>ПРОГНОЗЫ НА МАТЧИ</b>\n\nВыберите матч и исход:"
+    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
     try:
         await query.message.delete()
     except:
         pass
 
-async def make_prediction(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    message = update.message
-    try:
-        await message.delete()
-    except:
-        pass
-    args = context.args
-    if len(args) < 2:
-        await message.reply_text("❌ Использование: /predict <prediction_id> <home/draw/away>")
-        return
-    prediction_id, user_choice = args[0], args[1].lower()
-    if user_choice not in ['home', 'draw', 'away']:
-        await message.reply_text("❌ Выберите: home, draw или away")
-        return
+async def save_prediction_from_button(query: CallbackQuery, prediction_id: int, user_choice: str, context: ContextTypes.DEFAULT_TYPE):
+    user = query.from_user
+    chat_id = query.message.chat.id
+    
     cursor.execute("SELECT status FROM predictions WHERE id = ?", (prediction_id,))
     pred = cursor.fetchone()
-    if not pred:
-        await message.reply_text("❌ Прогноз не найден")
+    if not pred or pred[0] != 'active':
+        await query.answer("❌ Приём прогнозов на этот матч уже закрыт!", show_alert=True)
         return
-    if pred[0] != 'active':
-        await message.reply_text("❌ Приём прогнозов закрыт")
-        return
+    
     cursor.execute("SELECT 1 FROM user_predictions WHERE user_id = ? AND prediction_id = ?", (user.id, prediction_id))
     if cursor.fetchone():
-        await message.reply_text("❌ Вы уже сделали прогноз")
+        await query.answer("❌ Вы уже сделали прогноз на этот матч!", show_alert=True)
         return
+    
     cursor.execute("INSERT INTO user_predictions (user_id, prediction_id, prediction_result) VALUES (?, ?, ?)", (user.id, prediction_id, user_choice))
     cursor.execute("UPDATE user_stats SET total_predictions = total_predictions + 1 WHERE user_id = ?", (user.id,))
     if cursor.rowcount == 0:
         cursor.execute("INSERT INTO user_stats (user_id, total_predictions) VALUES (?, 1)", (user.id,))
     conn.commit()
+    
     choice_text = {"home": "победу хозяев", "draw": "ничью", "away": "победу гостей"}
-    sent = await message.reply_text(f"✅ Прогноз принят!\nВы выбрали: {choice_text[user_choice]}\nЖдите результата!")
-    asyncio.create_task(auto_delete_message(context, message.chat_id, sent.message_id, 10))
+    await query.answer(f"✅ Прогноз принят! Вы выбрали: {choice_text[user_choice]}", show_alert=False)
+    await query.message.edit_text(f"✅ Ваш прогноз на матч (ID {prediction_id}) принят!\nВы выбрали: {choice_text[user_choice]}\nЖдите результата.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]]))
 
+# ================== АВТОМАТИЧЕСКОЕ ДОБАВЛЕНИЕ ПРОГНОЗОВ ==================
+async def auto_add_predictions(app):
+    api_league_to_key = {
+        'PL': 'apl',
+        'PD': 'laliga',
+        'BL1': 'bundesliga',
+        'SA': 'seriea',
+        'CL': 'ucl'
+    }
+    while True:
+        try:
+            now_msk = datetime.now(MSK_TZ)
+            date_from = now_msk.strftime("%Y-%m-%d")
+            date_to = (now_msk + timedelta(days=5)).strftime("%Y-%m-%d")
+            for api_id, league_key in api_league_to_key.items():
+                matches = await fetch_matches(api_id, date_from, date_to)
+                if not matches:
+                    continue
+                for match in matches:
+                    match_api_id = str(match['id'])
+                    home = match['homeTeam']['name']
+                    away = match['awayTeam']['name']
+                    match_name = f"{home} vs {away}"
+                    utc_date = match['utcDate']
+                    msk_time = utc_to_msk(utc_date)
+                    match_time_str = msk_time.strftime("%d.%m.%Y %H:%M") if msk_time else "Время не указано"
+                    cursor.execute("SELECT id FROM predictions WHERE match_id = ?", (match_api_id,))
+                    if not cursor.fetchone():
+                        cursor.execute("INSERT INTO predictions (match_id, match_name, match_time, status) VALUES (?, ?, ?, 'active')",
+                                       (match_api_id, match_name, match_time_str))
+                        conn.commit()
+                        print(f"➕ Автоматически добавлен прогноз: {match_name} (API ID {match_api_id})")
+            await asyncio.sleep(21600)
+        except Exception as e:
+            print(f"❌ Ошибка в auto_add_predictions: {e}")
+            await asyncio.sleep(3600)
+
+# ================== АВТОМАТИЧЕСКОЕ ЗАВЕРШЕНИЕ ПРОГНОЗОВ ==================
+async def auto_finish_predictions(app):
+    while True:
+        try:
+            now_msk = datetime.now(MSK_TZ)
+            cursor.execute("SELECT id, match_id, match_time, match_name FROM predictions WHERE status = 'closed'")
+            predictions = cursor.fetchall()
+            for pred_id, match_api_id, match_time_str, match_name in predictions:
+                try:
+                    match_time = datetime.strptime(match_time_str, "%d.%m.%Y %H:%M")
+                    match_time = MSK_TZ.localize(match_time)
+                except:
+                    continue
+                if now_msk > (match_time + timedelta(hours=2)):
+                    match_data = await fetch_single_match(match_api_id)
+                    if match_data and match_data.get('status') == 'FINISHED':
+                        home_score = match_data['score']['fullTime']['home']
+                        away_score = match_data['score']['fullTime']['away']
+                        if home_score > away_score:
+                            result = 'home'
+                        elif home_score < away_score:
+                            result = 'away'
+                        else:
+                            result = 'draw'
+                        await auto_finish_prediction_logic(app, pred_id, result, match_name)
+            await asyncio.sleep(900)
+        except Exception as e:
+            print(f"❌ Ошибка в auto_finish_predictions: {e}")
+            await asyncio.sleep(900)
+
+async def auto_finish_prediction_logic(app, prediction_id: int, result: str, match_name: str):
+    cursor.execute("SELECT user_id, prediction_result FROM user_predictions WHERE prediction_id = ?", (prediction_id,))
+    predictions = cursor.fetchall()
+    if not predictions:
+        cursor.execute("UPDATE predictions SET status = 'finished' WHERE id = ?", (prediction_id,))
+        conn.commit()
+        return
+    
+    correct_users = []
+    wrong_users = []
+    for uid, pr in predictions:
+        is_correct = 1 if pr == result else 0
+        cursor.execute("UPDATE user_predictions SET is_correct = ?, points_earned = 1 WHERE user_id = ? AND prediction_id = ?", (is_correct, uid, prediction_id))
+        if is_correct:
+            correct_users.append(uid)
+        else:
+            wrong_users.append(uid)
+    cursor.execute("UPDATE predictions SET status = 'finished' WHERE id = ?", (prediction_id,))
+    conn.commit()
+    
+    for uid in correct_users:
+        await update_user_points(uid, 1, True)
+    for uid in wrong_users:
+        await update_user_points(uid, 0, False)
+    
+    # Отправка уведомлений
+    if result == "home":
+        result_emoji = f'<tg-emoji emoji-id="{HOME_EMOJI_ID}">🏠</tg-emoji>'
+        result_text = f"{result_emoji} победа хозяев"
+    elif result == "draw":
+        result_emoji = f'<tg-emoji emoji-id="{DRAW_EMOJI_ID}">🤝</tg-emoji>'
+        result_text = f"{result_emoji} ничья"
+    else:
+        result_emoji = f'<tg-emoji emoji-id="{AWAY_EMOJI_ID}">✈️</tg-emoji>'
+        result_text = f"{result_emoji} победа гостей"
+    
+    for uid, pr in predictions:
+        is_correct = (pr == result)
+        if is_correct:
+            text = (f"✅ <b>Ваш прогноз оказался верным!</b>\n\n"
+                    f"📋 Матч: {match_name}\n"
+                    f"🏆 Результат: {result_text}\n"
+                    f"⭐ Вы получили 1 балл + бонусы за серию.\n"
+                    f"📊 Проверьте свою статистику: /mystats")
+        else:
+            text = (f"❌ <b>Ваш прогноз не оправдался.</b>\n\n"
+                    f"📋 Матч: {match_name}\n"
+                    f"🏆 Результат: {result_text}\n"
+                    f"⚠️ Ваша серия прервана, но очки сохранены.\n"
+                    f"📊 Статистика: /mystats")
+        try:
+            await app.bot.send_message(chat_id=uid, text=text, parse_mode=ParseMode.HTML)
+        except Exception as e:
+            print(f"Не удалось отправить уведомление {uid}: {e}")
+    print(f"🏁 Автоматически завершён прогноз ID {prediction_id}: {match_name} -> {result}")
+
+# ================== РЕЙТИНГИ И СТАТИСТИКА ==================
 async def show_leaderboard(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
     chat_id = query.message.chat.id
     await delete_previous_message(chat_id, context)
@@ -817,75 +944,19 @@ async def admin_finish_prediction(update: Update, context: ContextTypes.DEFAULT_
         pass
     args = context.args
     if len(args) < 2:
-        await update.message.reply_text("❌ /finishprediction <ID> <home/draw/away>\nПример: /finishprediction 5 home")
+        await update.message.reply_text("❌ /finishprediction <ID> <home/draw/away>")
         return
     prediction_id, result = args[0], args[1].lower()
     if result not in ['home', 'draw', 'away']:
-        await update.message.reply_text("❌ Результат должен быть: home, draw или away")
+        await update.message.reply_text("❌ Результат: home, draw или away")
         return
     cursor.execute("SELECT match_name FROM predictions WHERE id = ? AND status = 'closed'", (prediction_id,))
     pred = cursor.fetchone()
     if not pred:
         await update.message.reply_text("❌ Прогноз не найден или не закрыт")
         return
-    cursor.execute("SELECT user_id, prediction_result FROM user_predictions WHERE prediction_id = ?", (prediction_id,))
-    predictions = cursor.fetchall()
-    if not predictions:
-        await update.message.reply_text("⚠️ На этот прогноз никто не сделал ставок")
-        cursor.execute("UPDATE predictions SET status = 'finished' WHERE id = ?", (prediction_id,))
-        conn.commit()
-        return
-    correct_users = []
-    wrong_users = []
-    for uid, pr in predictions:
-        is_correct = 1 if pr == result else 0
-        cursor.execute("UPDATE user_predictions SET is_correct = ?, points_earned = 1 WHERE user_id = ? AND prediction_id = ?", (is_correct, uid, prediction_id))
-        if is_correct:
-            correct_users.append(uid)
-        else:
-            wrong_users.append(uid)
-    cursor.execute("UPDATE predictions SET status = 'finished' WHERE id = ?", (prediction_id,))
-    conn.commit()
-    for uid in correct_users:
-        await update_user_points(uid, 1, True)
-    for uid in wrong_users:
-        await update_user_points(uid, 0, False)
-    # Формируем результат с премиум-эмодзи
-    if result == "home":
-        result_emoji = f'<tg-emoji emoji-id="{HOME_EMOJI_ID}">🏠</tg-emoji>'
-        result_text = f"{result_emoji} победа хозяев"
-    elif result == "draw":
-        result_emoji = f'<tg-emoji emoji-id="{DRAW_EMOJI_ID}">🤝</tg-emoji>'
-        result_text = f"{result_emoji} ничья"
-    else:
-        result_emoji = f'<tg-emoji emoji-id="{AWAY_EMOJI_ID}">✈️</tg-emoji>'
-        result_text = f"{result_emoji} победа гостей"
-    # Отправляем уведомления участникам
-    for uid, pr in predictions:
-        is_correct = (pr == result)
-        if is_correct:
-            text = (f"✅ <b>Ваш прогноз оказался верным!</b>\n\n"
-                    f"📋 Матч: {pred[0]}\n"
-                    f"🏆 Результат: {result_text}\n"
-                    f"⭐ Вы получили 1 балл + бонусы за серию.\n"
-                    f"📊 Проверьте свою статистику: /mystats")
-        else:
-            text = (f"❌ <b>Ваш прогноз не оправдался.</b>\n\n"
-                    f"📋 Матч: {pred[0]}\n"
-                    f"🏆 Результат: {result_text}\n"
-                    f"⚠️ Ваша серия прервана, но очки сохранены.\n"
-                    f"📊 Статистика: /mystats")
-        try:
-            await context.bot.send_message(chat_id=uid, text=text, parse_mode=ParseMode.HTML)
-        except Exception as e:
-            print(f"Не удалось отправить уведомление {uid}: {e}")
-    await update.message.reply_text(
-        f"✅ Прогноз завершён!\n"
-        f"📋 Матч: {pred[0]}\n"
-        f"🏆 Результат: {result_text}\n"
-        f"✅ Правильных: {len(correct_users)}/{len(predictions)}\n"
-        f"📨 Уведомления отправлены всем участникам."
-    )
+    await auto_finish_prediction_logic(context.application, int(prediction_id), result, pred[0])
+    await update.message.reply_text(f"✅ Прогноз завершён!\nМатч: {pred[0]}\nРезультат: {result}")
 
 async def admin_all_predictions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -1003,7 +1074,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔥 <b>Топ активных пользователей:</b>\n{users_text}")
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
-# ================== ФОНОВАЯ ЗАДАЧА ==================
+# ================== ФОНОВАЯ ЗАДАЧА (ПРОВЕРКА LIVE) ==================
 last_scores = {}
 notified_start = set()
 
@@ -1057,13 +1128,27 @@ async def match_checker(app):
             print(f"Ошибка в match_checker: {e}")
         await asyncio.sleep(30)
 
-# ================== ОБРАБОТЧИК КНОПОК ==================
+# ================== ОБРАБОТЧИК КНОПОК (ОСНОВНОЙ) ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
     user_id = query.from_user.id
     await update_user_stats(user_id, query.from_user.first_name, query.from_user.username)
+    
+    # Обработка кнопок прогнозов
+    if data.startswith("predict_"):
+        parts = data.split("_")
+        if len(parts) == 3:
+            pred_id = int(parts[1])
+            choice = parts[2]
+            await save_prediction_from_button(query, pred_id, choice, context)
+        return
+    
+    if data == "noop":
+        return
+    
+    # Остальные кнопки
     if data == "back_to_main":
         chat_id = query.message.chat.id
         await delete_previous_message(chat_id, context)
@@ -1074,6 +1159,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         return
+    
     if data.startswith("league_"):
         league_key = data.replace("league_", "")
         league = LEAGUES[league_key]
@@ -1086,15 +1172,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         return
+    
     if data.startswith("matches_"):
         await matches_next_48h(query, data.replace("matches_", ""), context)
         return
+    
     if data.startswith("table_"):
         await show_table(query, data.replace("table_", ""), context)
         return
+    
     if data.startswith("teams_"):
         await show_league_teams(query, data.replace("teams_", ""), context)
         return
+    
     if data == "ucl_playoff":
         chat_id = query.message.chat.id
         await delete_previous_message(chat_id, context)
@@ -1105,9 +1195,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         return
+    
     if data == "live":
         await live_matches(query, context)
         return
+    
     if data == "goal_live":
         chat_id = query.message.chat.id
         await delete_previous_message(chat_id, context)
@@ -1118,24 +1210,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         return
+    
     if data == "my_subs":
         await my_subscriptions(query, user_id, context)
         return
+    
     if data == "predictions":
         await show_active_predictions(query, context)
         return
+    
     if data == "leaderboard":
         await show_leaderboard(query, context)
         return
+    
     if data == "monthly":
         await monthly_leaderboard(query, context)
         return
+    
     if data == "winners":
         await winners_history(query, context)
         return
+    
     if data == "my_stats":
         await my_stats(query, context)
         return
+    
     if data.startswith("sub_team_"):
         team = data.replace("sub_team_", "")
         chat_id = query.message.chat.id
@@ -1150,6 +1249,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         return
+    
     if data.startswith("unsub_team_"):
         await unsubscribe_team(user_id, data.replace("unsub_team_", ""))
         chat_id = query.message.chat.id
@@ -1161,6 +1261,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         return
+    
     if data.startswith("goal_unsub_"):
         match_id = int(data.replace("goal_unsub_", ""))
         cursor.execute("DELETE FROM goal_subscriptions WHERE user_id=? AND match_id=?", (user_id, match_id))
@@ -1178,7 +1279,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================== ЗАПУСК ==================
 def main():
     print("=" * 60)
-    print("⚽ ФУТБОЛЬНЫЙ БОТ PRO (с прогнозами, баллами, рейтингами)")
+    print("⚽ ФУТБОЛЬНЫЙ БОТ PRO (автопрогнозы, кнопки, рейтинги)")
     print("=" * 60)
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -1186,7 +1287,6 @@ def main():
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("setnick", set_nickname))
     app.add_handler(CommandHandler("predictions", show_active_predictions))
-    app.add_handler(CommandHandler("predict", make_prediction))
     app.add_handler(CommandHandler("leaderboard", show_leaderboard))
     app.add_handler(CommandHandler("monthly", monthly_leaderboard))
     app.add_handler(CommandHandler("winners", winners_history))
@@ -1195,6 +1295,7 @@ def main():
     app.add_handler(CommandHandler("closeprediction", admin_close_prediction))
     app.add_handler(CommandHandler("finishprediction", admin_finish_prediction))
     app.add_handler(CommandHandler("adminpreds", admin_all_predictions))
+    
     feedback_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(feedback_start, pattern="^feedback$")],
         states={FEEDBACK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, feedback_text_received)]},
@@ -1202,9 +1303,13 @@ def main():
     )
     app.add_handler(feedback_conv)
     app.add_handler(CallbackQueryHandler(button_handler))
+    
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.create_task(match_checker(app))
+    loop.create_task(auto_add_predictions(app))
+    loop.create_task(auto_finish_predictions(app))
+    
     print("🚀 Бот запущен!")
     app.run_polling()
 
