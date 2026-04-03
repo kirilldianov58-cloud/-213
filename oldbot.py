@@ -43,7 +43,6 @@ STAR_EMOJI_ID = "5438496463044752972"
 HOME_EMOJI_ID = "5416041192905265756"
 PLANE_EMOJI_ID = "5463424023734014980"
 
-# Дополнительные премиум-эмодзи
 STATS_EMOJI_ID = "5231200819986047254"
 TROPHY_EMOJI_ID = "5253894142982895846"
 STAR_POINTS_EMOJI_ID = "6136464120779638846"
@@ -134,6 +133,7 @@ CREATE TABLE IF NOT EXISTS predictions (
     match_name TEXT NOT NULL,
     match_time TEXT,
     status TEXT DEFAULT 'active',
+    auto_close_time TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     closed_at TIMESTAMP
 )
@@ -544,7 +544,7 @@ async def my_subscriptions(query: CallbackQuery, user_id: int, context: ContextT
     except:
         pass
 
-# ================== ПРОГНОЗЫ (КНОПКИ + АВТОМАТИЗАЦИЯ) ==================
+# ================== ПРОГНОЗЫ (КНОПКИ, БЕЗ МЯЧИКА) ==================
 async def show_active_predictions(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
     chat_id = query.message.chat.id
     await delete_previous_message(chat_id, context)
@@ -556,20 +556,20 @@ async def show_active_predictions(query: CallbackQuery, context: ContextTypes.DE
         return
     
     keyboard = []
+    text = "🔮 <b>ПРОГНОЗЫ НА МАТЧИ</b>\n\n"
     for pred_id, match_name, match_time in predictions:
-        match_text = f"⚽ {match_name}"
+        short_name = match_name[:50] + "..." if len(match_name) > 53 else match_name
+        text += f"<b>{short_name}</b>\n"
         if match_time:
-            match_text += f" ({match_time})"
-        keyboard.append([InlineKeyboardButton(match_text, callback_data="noop")])
+            text += f"🕐 {match_time}\n"
         keyboard.append([
             InlineKeyboardButton("🏠 Хозяева", callback_data=f"predict_{pred_id}_home"),
             InlineKeyboardButton("🤝 Ничья", callback_data=f"predict_{pred_id}_draw"),
             InlineKeyboardButton("✈️ Гости", callback_data=f"predict_{pred_id}_away")
         ])
-        keyboard.append([])
+        text += "\n"
     
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")])
-    text = "🔮 <b>ПРОГНОЗЫ НА МАТЧИ</b>\n\nВыберите матч и исход:"
     await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
     try:
         await query.message.delete()
@@ -599,7 +599,7 @@ async def save_prediction_from_button(query: CallbackQuery, prediction_id: int, 
     
     choice_text = {"home": "победу хозяев", "draw": "ничью", "away": "победу гостей"}
     await query.answer(f"✅ Прогноз принят! Вы выбрали: {choice_text[user_choice]}", show_alert=False)
-    await query.message.edit_text(f"✅ Ваш прогноз на матч (ID {prediction_id}) принят!\nВы выбрали: {choice_text[user_choice]}\nЖдите результата.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]]))
+    await query.message.edit_text(f"✅ Ваш прогноз принят!\nВы выбрали: {choice_text[user_choice]}\nЖдите результата.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]]))
 
 # ================== АВТОМАТИЧЕСКОЕ ДОБАВЛЕНИЕ ПРОГНОЗОВ ==================
 async def auto_add_predictions(app):
@@ -637,6 +637,26 @@ async def auto_add_predictions(app):
         except Exception as e:
             print(f"❌ Ошибка в auto_add_predictions: {e}")
             await asyncio.sleep(3600)
+
+# ================== АВТОМАТИЧЕСКОЕ ЗАКРЫТИЕ ПРОГНОЗОВ ПО ВРЕМЕНИ ==================
+async def auto_close_predictions(app):
+    while True:
+        try:
+            now = datetime.now(MSK_TZ)
+            cursor.execute("SELECT id, auto_close_time FROM predictions WHERE status = 'active' AND auto_close_time IS NOT NULL")
+            rows = cursor.fetchall()
+            for pred_id, close_time_str in rows:
+                close_dt = datetime.fromisoformat(close_time_str)
+                if close_dt.tzinfo is None:
+                    close_dt = MSK_TZ.localize(close_dt)
+                if now >= close_dt:
+                    cursor.execute("UPDATE predictions SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ?", (pred_id,))
+                    conn.commit()
+                    print(f"⏰ Автоматически закрыт прогноз ID {pred_id} по расписанию")
+                    await app.bot.send_message(chat_id=OWNER_ID, text=f"🔔 Прогноз ID {pred_id} автоматически закрыт в {now.strftime('%H:%M')} МСК.")
+        except Exception as e:
+            print(f"Ошибка в auto_close_predictions: {e}")
+        await asyncio.sleep(60)
 
 # ================== АВТОМАТИЧЕСКОЕ ЗАВЕРШЕНИЕ ПРОГНОЗОВ ==================
 async def auto_finish_predictions(app):
@@ -693,7 +713,6 @@ async def auto_finish_prediction_logic(app, prediction_id: int, result: str, mat
     for uid in wrong_users:
         await update_user_points(uid, 0, False)
     
-    # Отправка уведомлений
     if result == "home":
         result_emoji = f'<tg-emoji emoji-id="{HOME_EMOJI_ID}">🏠</tg-emoji>'
         result_text = f"{result_emoji} победа хозяев"
@@ -927,12 +946,47 @@ async def admin_close_prediction(update: Update, context: ContextTypes.DEFAULT_T
             await update.message.reply_text("Нет активных прогнозов")
             return
         text = "Активные прогнозы:\n" + "\n".join([f"ID: {p[0]} — {p[1]}" for p in active])
-        text += "\n\n/closeprediction <ID>"
+        text += "\n\n/closeprediction <ID> [время]\nПример: /closeprediction 5 15:30"
         await update.message.reply_text(text)
         return
-    cursor.execute("UPDATE predictions SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'active'", (args[0],))
-    conn.commit()
-    await update.message.reply_text(f"✅ Прогноз #{args[0]} закрыт" if cursor.rowcount > 0 else "❌ Не найден")
+
+    prediction_id = args[0]
+    close_time_str = args[1] if len(args) > 1 else None
+
+    cursor.execute("SELECT status FROM predictions WHERE id = ?", (prediction_id,))
+    pred = cursor.fetchone()
+    if not pred:
+        await update.message.reply_text("❌ Прогноз не найден")
+        return
+    if pred[0] != 'active':
+        await update.message.reply_text(f"❌ Прогноз уже {pred[0]}")
+        return
+
+    if close_time_str:
+        now = datetime.now(MSK_TZ)
+        try:
+            if ' ' in close_time_str:
+                date_part, time_part = close_time_str.split()
+                day, month = map(int, date_part.split('.'))
+                hour, minute = map(int, time_part.split(':'))
+                close_dt = MSK_TZ.localize(datetime(now.year, month, day, hour, minute))
+                if close_dt < now:
+                    close_dt = close_dt.replace(year=now.year + 1)
+            else:
+                hour, minute = map(int, close_time_str.split(':'))
+                close_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if close_dt < now:
+                    close_dt += timedelta(days=1)
+        except Exception as e:
+            await update.message.reply_text(f"❌ Неверный формат времени. Примеры: 15:30 или 03.04 15:30")
+            return
+        cursor.execute("UPDATE predictions SET auto_close_time = ? WHERE id = ?", (close_dt.isoformat(), prediction_id))
+        conn.commit()
+        await update.message.reply_text(f"✅ Прогноз #{prediction_id} будет автоматически закрыт {close_dt.strftime('%d.%m.%Y в %H:%M')} МСК.")
+    else:
+        cursor.execute("UPDATE predictions SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ?", (prediction_id,))
+        conn.commit()
+        await update.message.reply_text(f"✅ Прогноз #{prediction_id} закрыт вручную.")
 
 async def admin_finish_prediction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -1128,15 +1182,14 @@ async def match_checker(app):
             print(f"Ошибка в match_checker: {e}")
         await asyncio.sleep(30)
 
-# ================== ОБРАБОТЧИК КНОПОК (ОСНОВНОЙ) ==================
+# ================== ОБРАБОТЧИК КНОПОК ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
     user_id = query.from_user.id
     await update_user_stats(user_id, query.from_user.first_name, query.from_user.username)
-    
-    # Обработка кнопок прогнозов
+
     if data.startswith("predict_"):
         parts = data.split("_")
         if len(parts) == 3:
@@ -1144,11 +1197,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             choice = parts[2]
             await save_prediction_from_button(query, pred_id, choice, context)
         return
-    
+
     if data == "noop":
         return
-    
-    # Остальные кнопки
+
     if data == "back_to_main":
         chat_id = query.message.chat.id
         await delete_previous_message(chat_id, context)
@@ -1159,7 +1211,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         return
-    
+
     if data.startswith("league_"):
         league_key = data.replace("league_", "")
         league = LEAGUES[league_key]
@@ -1172,19 +1224,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         return
-    
+
     if data.startswith("matches_"):
         await matches_next_48h(query, data.replace("matches_", ""), context)
         return
-    
+
     if data.startswith("table_"):
         await show_table(query, data.replace("table_", ""), context)
         return
-    
+
     if data.startswith("teams_"):
         await show_league_teams(query, data.replace("teams_", ""), context)
         return
-    
+
     if data == "ucl_playoff":
         chat_id = query.message.chat.id
         await delete_previous_message(chat_id, context)
@@ -1195,11 +1247,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         return
-    
+
     if data == "live":
         await live_matches(query, context)
         return
-    
+
     if data == "goal_live":
         chat_id = query.message.chat.id
         await delete_previous_message(chat_id, context)
@@ -1210,31 +1262,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         return
-    
+
     if data == "my_subs":
         await my_subscriptions(query, user_id, context)
         return
-    
+
     if data == "predictions":
         await show_active_predictions(query, context)
         return
-    
+
     if data == "leaderboard":
         await show_leaderboard(query, context)
         return
-    
+
     if data == "monthly":
         await monthly_leaderboard(query, context)
         return
-    
+
     if data == "winners":
         await winners_history(query, context)
         return
-    
+
     if data == "my_stats":
         await my_stats(query, context)
         return
-    
+
     if data.startswith("sub_team_"):
         team = data.replace("sub_team_", "")
         chat_id = query.message.chat.id
@@ -1249,7 +1301,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         return
-    
+
     if data.startswith("unsub_team_"):
         await unsubscribe_team(user_id, data.replace("unsub_team_", ""))
         chat_id = query.message.chat.id
@@ -1261,7 +1313,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         return
-    
+
     if data.startswith("goal_unsub_"):
         match_id = int(data.replace("goal_unsub_", ""))
         cursor.execute("DELETE FROM goal_subscriptions WHERE user_id=? AND match_id=?", (user_id, match_id))
@@ -1295,7 +1347,7 @@ def main():
     app.add_handler(CommandHandler("closeprediction", admin_close_prediction))
     app.add_handler(CommandHandler("finishprediction", admin_finish_prediction))
     app.add_handler(CommandHandler("adminpreds", admin_all_predictions))
-    
+
     feedback_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(feedback_start, pattern="^feedback$")],
         states={FEEDBACK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, feedback_text_received)]},
@@ -1303,13 +1355,14 @@ def main():
     )
     app.add_handler(feedback_conv)
     app.add_handler(CallbackQueryHandler(button_handler))
-    
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.create_task(match_checker(app))
     loop.create_task(auto_add_predictions(app))
+    loop.create_task(auto_close_predictions(app))
     loop.create_task(auto_finish_predictions(app))
-    
+
     print("🚀 Бот запущен!")
     app.run_polling()
 
